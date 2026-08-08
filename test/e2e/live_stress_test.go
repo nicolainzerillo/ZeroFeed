@@ -18,9 +18,7 @@ import (
 	"github.com/zerofeed/zerofeed/pkg/transport"
 )
 
-const (
-	FlyRelayAddr = "66.241.125.54:8443"
-)
+var FlyRelayAddr = "zerofeed-relay.fly.dev:8443"
 
 func TestLiveTCPRelaySingleStream(t *testing.T) {
 	if testing.Short() {

@@ -162,7 +162,7 @@ To benchmark or deploy subscriber instances globally across Fly.io regions (e.g.
 1. **VM Memory Sizing (`--vm-memory 512`)**:
    ZeroFeed subscribers lock memory into RAM using `crypto.LockMemory()` (`mlockall`) to prevent key material swapping. Fly Machine containers must be provisioned with at least **512 MB RAM** (`--vm-memory 512`). Micro-VMs with 256 MB will trigger Linux kernel OOM kills.
 2. **Internal Mesh Routing (6PN)**:
-   Inter-container connections within Fly.io use internal IPv6 mesh addressing (`zerofeed-relay.internal:8443`), bypassing edge TLS proxy resets. External clients (dev machines) connect via public IP `66.241.125.54:8443`.
+   Inter-container connections within Fly.io use internal IPv6 mesh addressing (`zerofeed-relay.internal:8443`), bypassing edge TLS proxy resets. External clients (dev machines) connect via public endpoint `zerofeed-relay.fly.dev:8443`.
 
 ---
 

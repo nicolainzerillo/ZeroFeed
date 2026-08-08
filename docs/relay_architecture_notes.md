@@ -1,6 +1,6 @@
 # ZeroFeed Public Relay Node — Knowledge Base & Deployment Specs
 
-> **Public Relay Endpoint**: `66.241.125.54` (Fly.io Datacenter: Frankfurt `fra`, EU)  
+> **Public Relay Endpoint**: `zerofeed-relay.fly.dev` (Fly.io Datacenter: Frankfurt `fra`, EU)  
 > **Supported Ports**: `443` (TCP), `8443` (Raw TCP & QUIC UDP)  
 > **Jurisdiction & Privacy**: European Union (RAM-Only Zero-Disk Ephemerality)
 
@@ -9,7 +9,7 @@
 ## 1. Public Frankfurt Relay Architecture
 
 1. **Frankfurt (`fra`) Hub Node**:
-   - Hosted on Fly.io Anycast Infrastructure in Frankfurt, Germany (`66.241.125.54`).
+   - Hosted on Fly.io Anycast Infrastructure in Frankfurt, Germany (`zerofeed-relay.fly.dev`).
    - Serves as the default zero-configuration matchmaking relay for ZeroFeed CLI users worldwide.
 
 2. **RAM-Only Ephemeral Routing**:
@@ -37,7 +37,7 @@
 1. **Port 443 TCP Handler (`EOF` Fix)**:
    - On `fly.toml`, port 443 TCP has `handlers = ["tls"]` by default.
    - Raw CLI clients connecting over TCP without TLS proxy encapsulation receive `EOF`.
-   - **Public Fix**: Use raw UDP port 8443 for QUIC streams (`--quic --relay 66.241.125.54:8443`), or deploy custom raw TCP listener without `handlers = ["tls"]`.
+   - **Public Fix**: Use raw UDP port 8443 for QUIC streams (`--quic --relay zerofeed-relay.fly.dev:8443`), or deploy custom raw TCP listener without `handlers = ["tls"]`.
 
 2. **Container Footprint**:
    - Scratch Linux ARM64 image size: `< 5 MB`.
@@ -60,8 +60,8 @@
 
 ```bash
 # Subscribe using Public Frankfurt Relay (QUIC UDP)
-./zerofeed sub --code "channel-name" --relay "66.241.125.54:8443" --quic --stream
+./zerofeed sub --code "channel-name" --relay "zerofeed-relay.fly.dev:8443" --quic --stream
 
 # Publish using Public Frankfurt Relay (QUIC UDP)
-./zerofeed pub --code "channel-name" --relay "66.241.125.54:8443" --quic --stream
+./zerofeed pub --code "channel-name" --relay "zerofeed-relay.fly.dev:8443" --quic --stream
 ```
