@@ -1,0 +1,57 @@
+name: ZeroFeed CI & Release Build
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    name: Test & Audit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+
+      - name: Verify Formatting
+        run: |
+          if [ -n "$(gofmt -l .)" ]; then
+            echo "The following files are not formatted with gofmt:"
+            gofmt -l .
+            exit 1
+          fi
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Run Unit & E2E Tests with Race Detector
+        run: go test -v -race ./...
+
+      - name: Run Performance Benchmarks
+        run: go test -bench=. -benchmem ./...
+
+  cross-compile:
+    name: Cross-Compile Release Binaries
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+
+      - name: Build Multi-Architecture Binaries
+        run: |
+          chmod +x scripts/build_release.sh
+          ./scripts/build_release.sh

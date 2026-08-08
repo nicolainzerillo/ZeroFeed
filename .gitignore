@@ -1,0 +1,25 @@
+# Binaries and compiled outputs
+zerofeed
+zerofeed.exe
+zerofeed-debug
+bin/
+
+# Temporary files, PDFs, test scripts, and scratch artifacts
+*.out
+*.test
+*.prof
+*.orig
+*.log
+*.tmp
+*.pdf
+test_pub.sh
+security_*report*.md
+scratch/
+.agents/
+
+# IDE and OS metadata
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo

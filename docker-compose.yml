@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  zerofeed-relay:
+    build: .
+    container_name: zerofeed-relay
+    restart: always
+    ports:
+      - "8443:8443/tcp"
+      - "8443:8443/udp"
+    environment:
+      - GOMAXPROCS=2
+    read_only: true
+    tmpfs:
+      - /tmp
+    deploy:
+      resources:
+        limits:
+          memory: 64M

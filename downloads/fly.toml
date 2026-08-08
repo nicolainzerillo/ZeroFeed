@@ -1,0 +1,22 @@
+app = "zerofeed-relay"
+primary_region = "fra"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[[services]]
+  internal_port = 8443
+  protocol = "tcp"
+
+  [[services.ports]]
+    port = 443
+    handlers = ["tls"]
+
+  [[services.ports]]
+    port = 8443
+    handlers = ["tls"]
+
+  [services.concurrency]
+    type = "connections"
+    hard_limit = 2000
+    soft_limit = 1500
