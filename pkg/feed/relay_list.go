@@ -39,6 +39,8 @@ func ParseRelayList(s string) []string {
 //
 // It respects ctx for cancellation. Each individual dial uses dialTimeout.
 // If all relays fail, the combined error list is returned.
+//
+// The caller is responsible for closing the returned connection.
 func DialFirstAvailable(ctx context.Context, relays []string, dialTimeout time.Duration) (net.Conn, string, error) {
 	if len(relays) == 0 {
 		return nil, "", fmt.Errorf("relay list is empty: set ZEROFEED_RELAY or use --relay")
@@ -55,6 +57,20 @@ func DialFirstAvailable(ctx context.Context, relays []string, dialTimeout time.D
 		lastErr = fmt.Errorf("relay %s: %w", addr, err)
 	}
 	return nil, "", fmt.Errorf("all relays unreachable: %w", lastErr)
+}
+
+// ProbeFirstAvailable checks each relay address in sequence and returns the
+// address of the first reachable one, without keeping the connection open.
+//
+// Use this to resolve which relay to use when you only need the address,
+// not the connection itself (avoids connection leaks in caller code).
+func ProbeFirstAvailable(ctx context.Context, relays []string, dialTimeout time.Duration) (string, error) {
+	conn, addr, err := DialFirstAvailable(ctx, relays, dialTimeout)
+	if err != nil {
+		return "", err
+	}
+	_ = conn.Close()
+	return addr, nil
 }
 
 // ResolveDefaultRelays resolves DefaultRelayDNS to a list of relay addresses.

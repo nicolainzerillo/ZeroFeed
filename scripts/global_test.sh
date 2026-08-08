@@ -4,9 +4,9 @@
 
 set -euo pipefail
 
-# Default configuration
-DEFAULT_REGIONS="fra,nrt,syd,iad,gru"
-RELAY_SERVER="YOUR_RELAY_IP:8443"
+# Relay server — set ZEROFEED_RELAY env var before running, e.g.:
+#   ZEROFEED_RELAY=relay.example.com:8443 ./scripts/global_test.sh
+RELAY_SERVER="${ZEROFEED_RELAY:-}"
 CHANNEL_CODE="zerofeed-global-bench-$(date +%s)"
 FLY_APP="zerofeed-relay"
 FLY_IMAGE="registry.fly.io/zerofeed-relay:deployment-01KZBA0Q3K3P0W4RQRKGY25T3R"
@@ -117,6 +117,14 @@ echo -e "Fly Image    : ${CYAN}${FLY_IMAGE}${NC}"
 echo -e "Bench Size   : ${CYAN}${BENCH_SIZE_MB} MB${NC}"
 echo -e "${BLUE}====================================================${NC}\n"
 
+# Verify ZEROFEED_RELAY is set
+if [[ -z "${RELAY_SERVER}" ]]; then
+    echo -e "${RED}Error: ZEROFEED_RELAY environment variable is not set.${NC}"
+    echo -e "Set it before running, e.g.:"
+    echo -e "  ${CYAN}ZEROFEED_RELAY=relay.example.com:8443 ./scripts/global_test.sh${NC}"
+    exit 1
+fi
+
 # Verify fly CLI is installed
 if ! command -v fly &> /dev/null; then
     echo -e "${RED}Error: 'fly' CLI tool is not installed or not in PATH.${NC}"
@@ -124,10 +132,10 @@ if ! command -v fly &> /dev/null; then
     exit 1
 fi
 
-# Construct zerofeed command flags for subscriber machines
-# Inside Fly.io 6PN network, subscriber connects via internal mesh zerofeed-relay.internal:8443
+# Construct zerofeed command flags for subscriber machines.
+# Inside Fly.io 6PN, use internal mesh address; --server override uses the external relay directly.
 INT_RELAY_SERVER="zerofeed-relay.internal:8443"
-if [[  "${RELAY_SERVER}" != "YOUR_RELAY_IP:8443" ]]; then
+if [[ -n "${ZEROFEED_RELAY_EXTERNAL:-}" ]]; then
     INT_RELAY_SERVER="${RELAY_SERVER}"
 fi
 

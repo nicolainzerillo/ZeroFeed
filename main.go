@@ -118,7 +118,8 @@ func parseByteSize(s string) uint64 {
 
 // resolveRelayAddr resolves the effective relay address from CLI flags.
 // Priority: -r flag > --relay flag > ZEROFEED_RELAY env > DNS lookup of DefaultRelayDNS.
-// Supports comma-separated lists for fallback (tries each in order, returns first reachable).
+// Supports comma-separated lists; probes each in order and returns first reachable address.
+// The probe opens and immediately closes a TCP connection — no leak.
 func resolveRelayAddr(r1, r2 string) string {
 	raw := r2
 	if raw == "" {
@@ -127,32 +128,26 @@ func resolveRelayAddr(r1, r2 string) string {
 	if raw == "" {
 		raw = os.Getenv("ZEROFEED_RELAY")
 	}
+
+	var list []string
 	if raw == "" {
-		relays := feed.ResolveDefaultRelays()
-		if len(relays) == 0 {
+		// DNS fallback
+		list = feed.ResolveDefaultRelays()
+		if len(list) == 0 {
 			fmt.Fprintf(os.Stderr, "Error: no relay specified and DNS lookup of %s failed.\n", feed.DefaultRelayDNS)
 			fmt.Fprintf(os.Stderr, "Use --relay <address> or set ZEROFEED_RELAY.\n")
 			os.Exit(1)
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		_, addr, err := feed.DialFirstAvailable(ctx, relays, 2*time.Second)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: all resolved relays unreachable: %v\n", err)
-			os.Exit(1)
-		}
-		return addr
+	} else {
+		list = feed.ParseRelayList(raw)
 	}
-	list := feed.ParseRelayList(raw)
-	if len(list) == 1 {
-		return list[0]
-	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_, addr, err := feed.DialFirstAvailable(ctx, list, 2*time.Second)
+	addr, err := feed.ProbeFirstAvailable(ctx, list, 2*time.Second)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: relay fallback exhausted, using first: %s\n", list[0])
-		return list[0]
+		fmt.Fprintf(os.Stderr, "Error: relay unreachable: %v\n", err)
+		os.Exit(1)
 	}
 	return addr
 }

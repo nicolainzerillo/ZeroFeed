@@ -8,6 +8,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"fmt"
+	"os"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -18,9 +19,24 @@ import (
 	"github.com/zerofeed/zerofeed/pkg/transport"
 )
 
-var FlyRelayAddr = "YOUR_RELAY_IP:8443"
+// FlyRelayAddr is the live relay endpoint for e2e tests against a real relay node.
+// Set ZEROFEED_RELAY before running, e.g.:
+//
+//	ZEROFEED_RELAY=relay.example.com:8443 go test -tags quic -run TestLive ./test/e2e/
+//
+// All live relay tests skip automatically when ZEROFEED_RELAY is not set.
+var FlyRelayAddr = os.Getenv("ZEROFEED_RELAY")
+
+// skipIfNoRelay skips the test if ZEROFEED_RELAY is not configured.
+func skipIfNoRelay(t *testing.T) {
+	t.Helper()
+	if FlyRelayAddr == "" {
+		t.Skip("Skipping live relay test: ZEROFEED_RELAY not set")
+	}
+}
 
 func TestLiveTCPRelaySingleStream(t *testing.T) {
+	skipIfNoRelay(t)
 	if testing.Short() {
 		t.Skip("Skipping external live network relay test in -short mode")
 	}
@@ -145,10 +161,11 @@ func TestLiveRelayHighStressLoadTCP(t *testing.T) {
 }
 
 func runStressTest(t *testing.T, concurrentSessions int, messagesPerSession int, msgSize int) {
+	skipIfNoRelay(t)
 	if testing.Short() {
 		t.Skip("Skipping external live network relay stress test in -short mode")
 	}
-	t.Logf("Starting TCP Stress Load Test against Oracle Cloud EU-Turin-1 Relay (%s)", FlyRelayAddr)
+	t.Logf("Starting TCP Stress Load Test against live relay (%s)", FlyRelayAddr)
 	t.Logf("Concurrent Sessions: %d, Msgs/Session: %d, Payload/Session: %.2f KB, Total Volume: %.2f MB",
 		concurrentSessions, messagesPerSession, float64(messagesPerSession*msgSize)/1024,
 		float64(concurrentSessions*messagesPerSession*msgSize)/(1024*1024))
