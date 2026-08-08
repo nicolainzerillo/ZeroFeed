@@ -79,8 +79,26 @@ func DialRelayWithPin(ctx context.Context, relayAddr string, expectedFingerprint
 
 	expectedFingerprint = strings.TrimSpace(strings.ToLower(expectedFingerprint))
 
-	// Use TLS first if port is 443 or 8443 (Fly.io default proxy ports) or SPKI fingerprint pinning is requested.
-	useTLSFirst := port == "443" || port == "8443" || expectedFingerprint != ""
+	// Use TLS first if:
+	// - Port is 443 or 8443 AND the host is a DNS name (likely a TLS-terminating proxy like Fly.io), OR
+	// - SPKI fingerprint pinning is explicitly requested (works with both IPs and hostnames).
+	// Skip TLS probe for raw IP addresses without pinning: there's no cert to verify,
+	// and the probe would send a TLS ClientHello that the relay sees as a malformed frame.
+	isRawIP := net.ParseIP(host) != nil
+	isIPv6 := isRawIP && strings.Contains(host, ":")
+
+	// Select network type: use "tcp4"/"tcp6" for raw IP literals to avoid macOS
+	// Happy Eyeballs / dual-stack hangs when only one address family is reachable.
+	tcpNetwork := "tcp"
+	if isRawIP {
+		if isIPv6 {
+			tcpNetwork = "tcp6"
+		} else {
+			tcpNetwork = "tcp4"
+		}
+	}
+
+	useTLSFirst := (!isRawIP && (port == "443" || port == "8443")) || expectedFingerprint != ""
 	if useTLSFirst {
 		// Enforce Standard PKI System CA verification by default (InsecureSkipVerify = false).
 		// Only override PKI when explicit SPKI Certificate Fingerprint Pinning is requested by the client.
@@ -114,7 +132,7 @@ func DialRelayWithPin(ctx context.Context, relayAddr string, expectedFingerprint
 			Timeout:       tlsTimeout,
 			FallbackDelay: 100 * time.Millisecond,
 		}
-		tlsConn, tlsErr := tls.DialWithDialer(&tlsDialer, "tcp", relayAddr, tlsConfig)
+		tlsConn, tlsErr := tls.DialWithDialer(&tlsDialer, tcpNetwork, relayAddr, tlsConfig)
 		if tlsErr == nil {
 			return tlsConn, nil
 		}
@@ -123,6 +141,6 @@ func DialRelayWithPin(ctx context.Context, relayAddr string, expectedFingerprint
 		}
 	}
 
-	// Default to plain TCP
-	return d.DialContext(ctx, "tcp", relayAddr)
+	// Default to plain TCP (use specific network family for raw IP literals)
+	return d.DialContext(ctx, tcpNetwork, relayAddr)
 }

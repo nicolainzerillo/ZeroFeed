@@ -6,7 +6,7 @@ set -euo pipefail
 
 # Default configuration
 DEFAULT_REGIONS="fra,nrt,syd,iad,gru"
-RELAY_SERVER="zerofeed-relay.fly.dev:8443"
+RELAY_SERVER="YOUR_RELAY_IP:8443"
 CHANNEL_CODE="zerofeed-global-bench-$(date +%s)"
 FLY_APP="zerofeed-relay"
 FLY_IMAGE="registry.fly.io/zerofeed-relay:deployment-01KZBA0Q3K3P0W4RQRKGY25T3R"
@@ -127,7 +127,7 @@ fi
 # Construct zerofeed command flags for subscriber machines
 # Inside Fly.io 6PN network, subscriber connects via internal mesh zerofeed-relay.internal:8443
 INT_RELAY_SERVER="zerofeed-relay.internal:8443"
-if [[ "${RELAY_SERVER}" != "zerofeed-relay.fly.dev:8443" ]]; then
+if [[  "${RELAY_SERVER}" != "YOUR_RELAY_IP:8443" ]]; then
     INT_RELAY_SERVER="${RELAY_SERVER}"
 fi
 
