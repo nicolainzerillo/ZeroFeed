@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sync"
 	"time"
 
@@ -608,6 +609,35 @@ func (s *SubscriberEngine) Close() {
 	}
 }
 
+// ansiStripRe matches ANSI / VT100 escape sequences and OSC sequences that
+// could cause terminal visual-spoofing or be misused as a side-channel.
+// Compiled once at package init via sync.Once.
+var (
+	ansiStripOnce sync.Once
+	ansiStripRe   *regexp.Regexp
+)
+
+func getAnsiRe() *regexp.Regexp {
+	ansiStripOnce.Do(func() {
+		// Covers:
+		//  - CSI sequences:  ESC [ ... <final byte 0x40-0x7E>
+		//  - OSC sequences:  ESC ] ... (BEL or ST terminator)
+		//  - Single ESC + any byte
+		//  - Raw C0 controls except \t (0x09), \n (0x0A), \r (0x0D)
+		ansiStripRe = regexp.MustCompile(
+			`\x1b\[[0-9;]*[A-Za-z]` + // CSI
+				`|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)` + // OSC
+				`|\x1b[^\x1b]` + // ESC + char
+				`|[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]`, // C0 controls (excl. \t\n\r)
+		)
+	})
+	return ansiStripRe
+}
+
+// sanitizeTextOutput strips ANSI escape sequences and non-printable control
+// characters from subscriber text output before writing to the terminal or
+// passing to a callback. This prevents terminal title injection, cursor
+// manipulation, and other visual-spoofing attacks via crafted payloads.
 func sanitizeTextOutput(data []byte) []byte {
-	return data
+	return getAnsiRe().ReplaceAll(data, nil)
 }
