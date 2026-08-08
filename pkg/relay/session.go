@@ -144,7 +144,6 @@ func (c *ClientConn) SendFrameWithTimeout(env *protocol.Envelope, timeout time.D
 	return protocol.Encode(c.netConn, env)
 }
 
-
 // Close gracefully closes net.Conn.
 func (c *ClientConn) Close() error {
 	c.closeOnce.Do(func() {

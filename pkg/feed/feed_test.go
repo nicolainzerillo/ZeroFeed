@@ -286,4 +286,3 @@ func TestRingBufferOverflowAndEdgeCases(t *testing.T) {
 		t.Fatalf("expected IsOverflow false for seqNum 11")
 	}
 }
-

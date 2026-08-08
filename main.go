@@ -216,7 +216,6 @@ func runPublish(args []string) {
 	logStderr(*quiet, "[+] Authenticated PAKE session established! E2EE stream ready.\n")
 	logStderr(*quiet, "    🛡️ SAS Verification Badge: %s [%s]\n", pub.SASEmoji(), pub.SASFingerprint())
 
-
 	if fileToSend != "" {
 		logStderr(*quiet, "[!] Transmitting file: %s...\n", fileToSend)
 		if err := pub.SendFile(ctx, fileToSend); err != nil {
@@ -374,7 +373,6 @@ func runSubscribe(args []string) {
 	}
 }
 
-
 func runRelay(args []string) {
 	fs := flag.NewFlagSet("relay", flag.ExitOnError)
 	port := fs.Int("port", 8443, "Relay listening TCP/UDP port")
@@ -490,7 +488,7 @@ func generateChannelCode() string {
 	w3 := words[int(b[2])%len(words)]
 	w4 := words[int(b[3])%len(words)]
 	w5 := words[int(b[4])%len(words)]
-	num := binary.BigEndian.Uint32(b[4:]) % 900000 + 100000
+	num := binary.BigEndian.Uint32(b[4:])%900000 + 100000
 
 	return fmt.Sprintf("%s-%s-%s-%s-%s-%d", w1, w2, w3, w4, w5, num)
 }

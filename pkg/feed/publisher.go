@@ -255,7 +255,6 @@ func (p *PublisherEngine) SASEmoji() string {
 	return p.sasEmoji
 }
 
-
 // PublishStream maintains a continuous P2P session loop reading payloads from inputChan, assigning sequence numbers, sending heartbeats, and broadcasting encrypted frames.
 func (p *PublisherEngine) PublishStream(ctx context.Context, inputChan <-chan []byte) error {
 	defer p.Close()

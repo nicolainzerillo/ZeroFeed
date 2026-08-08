@@ -10,16 +10,16 @@ import (
 // Metrics manages atomic, lock-free zero-knowledge telemetry counters.
 // Guaranteed Zero-Knowledge: No IPs, Session IDs, passphrases, or payload contents are recorded.
 type Metrics struct {
-	ActiveSessions              atomic.Int64
-	SessionsCreatedTotal        atomic.Uint64
-	ActiveConnections           atomic.Int64
-	BytesTransferredTotal       atomic.Uint64
-	MessagesRelayedTotal        atomic.Uint64
-	RateLimitBansTotal          atomic.Uint64
+	ActiveSessions               atomic.Int64
+	SessionsCreatedTotal         atomic.Uint64
+	ActiveConnections            atomic.Int64
+	BytesTransferredTotal        atomic.Uint64
+	MessagesRelayedTotal         atomic.Uint64
+	RateLimitBansTotal           atomic.Uint64
 	MalformedPacketsDroppedTotal atomic.Uint64
-	BackpressurePausesTotal     atomic.Uint64
-	SlowConsumersPrunedTotal    atomic.Uint64
-	startTime                   time.Time
+	BackpressurePausesTotal      atomic.Uint64
+	SlowConsumersPrunedTotal     atomic.Uint64
+	startTime                    time.Time
 }
 
 // NewMetrics initializes a Metrics instance.
@@ -33,7 +33,7 @@ func NewMetrics() *Metrics {
 func (m *Metrics) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
-		
+
 		uptimeSeconds := time.Since(m.startTime).Seconds()
 
 		fmt.Fprintf(w, "# HELP zerofeed_relay_uptime_seconds Total relay server uptime in seconds.\n")

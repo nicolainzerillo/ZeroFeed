@@ -242,4 +242,3 @@ func CalculateSAS(key []byte) (hexSAS string, emojiSAS string) {
 	emojiSAS = SASVisualEmojis[idx1] + SASVisualEmojis[idx2] + SASVisualEmojis[idx3] + SASVisualEmojis[idx4]
 	return hexSAS, emojiSAS
 }
-

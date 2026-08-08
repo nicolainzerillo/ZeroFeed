@@ -45,13 +45,13 @@ func (s *SubscriberEngine) sendAckFrame(transferID string) error {
 
 // SubscriberEngine handles PAKE authentication, sequence tracking, auto-reconnect, and RAM ring buffer management.
 type SubscriberEngine struct {
-	passphrase    []byte
-	relayAddr     string
-	sessionID     [protocol.SessionIDSize]byte
-	pakePeer      *crypto.PAKEPeer
-	cipher        *crypto.Cipher
-	conn          net.Conn
-	ringBuffer    *RingBuffer
+	passphrase          []byte
+	relayAddr           string
+	sessionID           [protocol.SessionIDSize]byte
+	pakePeer            *crypto.PAKEPeer
+	cipher              *crypto.Cipher
+	conn                net.Conn
+	ringBuffer          *RingBuffer
 	lastSeqNum          uint64
 	expectedFingerprint string
 	transportMode       transport.Mode
@@ -226,7 +226,6 @@ func (s *SubscriberEngine) SASEmoji() string {
 	defer s.mu.Unlock()
 	return s.sasEmoji
 }
-
 
 // SendSyncRequest sends a SYNC_REQ frame to Publisher with current lastSeqNum upon reconnect.
 func (s *SubscriberEngine) SendSyncRequest() error {
@@ -612,4 +611,3 @@ func (s *SubscriberEngine) Close() {
 func sanitizeTextOutput(data []byte) []byte {
 	return data
 }
-

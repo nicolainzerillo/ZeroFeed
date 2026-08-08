@@ -145,4 +145,3 @@ func TestCalculateSAS(t *testing.T) {
 		t.Fatalf("expected deterministic SAS output for identical keys")
 	}
 }
-

@@ -267,7 +267,7 @@ func runStressTest(t *testing.T, concurrentSessions int, messagesPerSession int,
 			} else {
 				failedCount.Add(1)
 				t.Logf("[Session %d] Hash mismatch! expected %x, got %x (bytes %d / %d)",
-					sessionIdx, expectedHash[:8], actualHash[:8], subBuf.Len(), (messagesPerSession*(msgSize-1)))
+					sessionIdx, expectedHash[:8], actualHash[:8], subBuf.Len(), (messagesPerSession * (msgSize - 1)))
 			}
 		}()
 
