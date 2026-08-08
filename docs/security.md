@@ -59,6 +59,29 @@ Both Publisher and Subscriber display the SAS badge upon handshake completion (`
 
 ---
 
+## 4. Zero-Knowledge Scope & Metadata Limits
+
+ZeroFeed guarantees **zero-knowledge with respect to payload content**: the relay cannot decrypt, read, or store the data being transmitted.
+
+However, the relay **does observe the following session metadata** (held in RAM, never written to disk):
+
+| Metadata | Visible to Relay? | Notes |
+| :--- | :--- | :--- |
+| Publisher IP address | ✅ Yes | Required for TCP/QUIC connection routing |
+| Subscriber IP address | ✅ Yes | Required for TCP/QUIC connection routing |
+| Session start / end timestamps | ✅ Yes | Used for TTL and heartbeat enforcement |
+| Bytes transferred per session | ✅ Yes | Used for flow control and rate limiting |
+| Connection frequency / patterns | ✅ Yes | Derivable from relay logs |
+| Payload plaintext content | ❌ No | AES-256-GCM E2EE, relay has no keys |
+| Session encryption keys | ❌ No | Derived end-to-end via PAKE, never sent to relay |
+| Passphrases / channel codes | ❌ No | Never transmitted in cleartext |
+
+**This metadata is not cryptographically protected.** A relay operator (or an attacker who has compromised the relay) can perform traffic analysis and correlation attacks based on IP addresses and timing patterns.
+
+> **Recommendation**: If your threat model requires anonymity of *who communicates with whom* (not just *what* they transmit), route ZeroFeed through Tor or a trusted VPN before connecting to the public relay.
+
+---
+
 ## 3. RAM Scrubbing & Memory Zeroization
 
 To mitigate cold-boot attacks and process RAM dumps:
@@ -74,6 +97,8 @@ To mitigate cold-boot attacks and process RAM dumps:
    }
    ```
 4. **Buffer Reuse Pooling**: Ring buffers use `sync.Pool` for payload buffer reuse and zeroing to prevent memory fragmentation.
+
+> **Known Limitation**: The Go runtime may internally copy slice backing arrays during garbage collection, stack growth, or channel operations *before* `ZeroBytes` is called. This is an inherent property of the Go runtime and cannot be fully mitigated in pure Go without CGO. `ZeroBytes` is therefore **best-effort**: it reduces the window during which sensitive material resides in memory, but does not provide hardware-grade guarantees. For workloads requiring certified zeroization (e.g. FIPS 140-3 Level 2+), use an external HSM.
 
 ---
 

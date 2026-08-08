@@ -116,6 +116,47 @@ func parseByteSize(s string) uint64 {
 	return val * mult
 }
 
+// resolveRelayAddr resolves the effective relay address from CLI flags.
+// Priority: -r flag > --relay flag > ZEROFEED_RELAY env > DNS lookup of DefaultRelayDNS.
+// Supports comma-separated lists for fallback (tries each in order, returns first reachable).
+func resolveRelayAddr(r1, r2 string) string {
+	raw := r2
+	if raw == "" {
+		raw = r1
+	}
+	if raw == "" {
+		raw = os.Getenv("ZEROFEED_RELAY")
+	}
+	if raw == "" {
+		relays := feed.ResolveDefaultRelays()
+		if len(relays) == 0 {
+			fmt.Fprintf(os.Stderr, "Error: no relay specified and DNS lookup of %s failed.\n", feed.DefaultRelayDNS)
+			fmt.Fprintf(os.Stderr, "Use --relay <address> or set ZEROFEED_RELAY.\n")
+			os.Exit(1)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_, addr, err := feed.DialFirstAvailable(ctx, relays, 2*time.Second)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: all resolved relays unreachable: %v\n", err)
+			os.Exit(1)
+		}
+		return addr
+	}
+	list := feed.ParseRelayList(raw)
+	if len(list) == 1 {
+		return list[0]
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, addr, err := feed.DialFirstAvailable(ctx, list, 2*time.Second)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: relay fallback exhausted, using first: %s\n", list[0])
+		return list[0]
+	}
+	return addr
+}
+
 func runPublish(args []string) {
 	fs := flag.NewFlagSet("publish", flag.ExitOnError)
 	p1 := fs.String("passphrase", "", "Shared passphrase for E2EE PAKE session")
@@ -124,8 +165,8 @@ func runPublish(args []string) {
 	p4 := fs.String("code", "", "Shared passphrase (alias)")
 	p5 := fs.String("channel", "", "Shared passphrase (alias)")
 
-	r1 := fs.String("relay", "127.0.0.1:8443", "Relay server address")
-	r2 := fs.String("r", "127.0.0.1:8443", "Relay server address (shorthand)")
+	r1 := fs.String("relay", "", "Relay server address(es), comma-separated for fallback (e.g. relay1.example.com:8443,relay2.example.com:8443). Defaults to "+feed.DefaultRelayDNS+" if unset.")
+	r2 := fs.String("r", "", "Relay server address (shorthand)")
 	streamMode := fs.Bool("stream", false, "Continuous streaming mode")
 	fs.BoolVar(streamMode, "s", false, "Continuous streaming mode (shorthand)")
 	ttlStr := fs.String("ttl", "5m", "RAM Replay Buffer Session TTL duration (e.g. 1m, 5m, 15m)")
@@ -147,10 +188,7 @@ func runPublish(args []string) {
 		fmt.Fprintf(os.Stderr, "    >>> %s <<<\n\n", passVal)
 	}
 
-	relayAddr := *r1
-	if *r2 != "127.0.0.1:8443" {
-		relayAddr = *r2
-	}
+	relayAddr := resolveRelayAddr(*r1, *r2)
 
 	fileToSend := *f1
 	if *f2 != "" {
@@ -295,8 +333,8 @@ func runSubscribe(args []string) {
 	p4 := fs.String("code", "", "Shared passphrase (alias)")
 	p5 := fs.String("channel", "", "Shared passphrase (alias)")
 
-	r1 := fs.String("relay", "127.0.0.1:8443", "Relay server address")
-	r2 := fs.String("r", "127.0.0.1:8443", "Relay server address (shorthand)")
+	r1 := fs.String("relay", "", "Relay server address(es), comma-separated for fallback (e.g. relay1.example.com:8443,relay2.example.com:8443). Defaults to "+feed.DefaultRelayDNS+" if unset.")
+	r2 := fs.String("r", "", "Relay server address (shorthand)")
 	streamMode := fs.Bool("stream", false, "Continuous streaming mode")
 	fs.BoolVar(streamMode, "s", false, "Continuous streaming mode (shorthand)")
 	quiet := fs.Bool("quiet", false, "Silence status banners and log output for clean Unix piping")
@@ -313,10 +351,7 @@ func runSubscribe(args []string) {
 		os.Exit(1)
 	}
 
-	relayAddr := *r1
-	if *r2 != "127.0.0.1:8443" {
-		relayAddr = *r2
-	}
+	relayAddr := resolveRelayAddr(*r1, *r2)
 
 	codeBytes := []byte(passVal)
 	crypto.RegisterBuffer(codeBytes)

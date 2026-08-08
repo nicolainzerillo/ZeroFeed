@@ -1,10 +1,10 @@
 # ZeroFeed ⚡
 
-> **Zero-Knowledge, End-to-End Encrypted, Ephemeral Pub/Sub CLI & Go Engine**
+> **Zero-Knowledge Payload Encryption · End-to-End Encrypted · Ephemeral Pub/Sub CLI & Go Engine**
 
 ZeroFeed is a lightweight, zero-dependency command-line utility and pure Go library designed for secure, real-time transmission of sensitive payloads (configurations, secrets, API tokens, logs, small files) between Publisher and Subscriber nodes. 
 
-Built with **Zero-Knowledge** architecture at its core: no payload data is EVER written to disk on intermediate servers or relay nodes, and all transmissions execute strictly via in-memory E2EE streams that self-destruct upon delivery or session timeout (TTL).
+Built with **Zero-Knowledge Payload Encryption** at its core: no payload data is EVER written to disk on intermediate servers or relay nodes, and all transmissions execute strictly via in-memory E2EE streams that self-destruct upon delivery or session timeout (TTL). Session metadata (IP addresses, timestamps, byte counts) is not encrypted at the relay level — see [Security Whitepaper § Metadata Limits](docs/security.md) for the full threat model.
 
 ---
 
@@ -20,7 +20,7 @@ Built with **Zero-Knowledge** architecture at its core: no payload data is EVER 
 
 ## 🌟 Key Features
 
-- **🔒 Zero-Knowledge & Zero-Disk Storage**: 100% RAM-only execution. No databases, temp files, or disk logs.
+- **🔒 Zero-Knowledge Payload Encryption & Zero-Disk Storage**: 100% RAM-only execution. No databases, temp files, or disk logs. The relay cannot decrypt your payload. Session metadata (IPs, timing) is visible to the relay — [details](docs/security.md#4-zero-knowledge-scope--metadata-limits).
 - **🛡️ Post-Quantum Hybrid E2EE**: NIST FIPS 203 ML-KEM-768 + X25519 hybrid Password-Authenticated Key Exchange (PAKE) combined with Argon2id memory-hardening and AES-256-GCM AEAD payload encryption.
 - **🇮🇹 Technical Alignment with ACN Guidelines**: Engineered in technical alignment with Italian National Cybersecurity Agency (ACN) guidelines for Quantum-Safe Hybrid Key Exchanges (ACN Luglio 2024 & 2026 directives).
 - **⚡ Zero External Dependencies**: 100% written in pure Go stdlib (`crypto/mlkem`, `crypto/ecdh`, `crypto/aes`, `crypto/cipher`, `crypto/sha256`, `net`, `sync`).
