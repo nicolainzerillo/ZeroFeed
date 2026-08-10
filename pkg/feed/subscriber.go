@@ -188,6 +188,14 @@ func (s *SubscriberEngine) CompleteHandshake(timeout time.Duration) error {
 		return fmt.Errorf("zerofeed/feed: failed to receive publisher PAKE payload: %w", err)
 	}
 
+	if env.MsgType == protocol.MsgTypeClose {
+		return fmt.Errorf("zerofeed/feed: session closed by peer/relay: %s", string(env.Payload))
+	}
+
+	if env.Version < protocol.MinSupportedVersion {
+		return fmt.Errorf("zerofeed/feed: publisher is using incompatible protocol version 0x%02X (expected 0x%02X+)", env.Version, protocol.MinSupportedVersion)
+	}
+
 	if err := s.pakePeer.Update(env.Payload); err != nil {
 		return fmt.Errorf("zerofeed/feed: PAKE key exchange failed: %w", err)
 	}

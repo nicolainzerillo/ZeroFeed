@@ -73,8 +73,8 @@ func Decode(r io.Reader) (*Envelope, error) {
 	}
 
 	version := headerBuf[4]
-	if version != Version {
-		return nil, ErrUnsupportedVer
+	if version < MinSupportedVersion {
+		return nil, fmt.Errorf("%w: version 0x%02X is below minimum 0x%02X", ErrUnsupportedVer, version, MinSupportedVersion)
 	}
 
 	msgType := headerBuf[5]

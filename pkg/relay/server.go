@@ -237,7 +237,14 @@ func (srv *Server) handleConnection(conn net.Conn) {
 	_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
 	env, err := protocol.Decode(conn)
 	if err != nil {
-		if !errors.Is(err, io.EOF) {
+		if errors.Is(err, protocol.ErrUnsupportedVer) {
+			closeEnv := &protocol.Envelope{
+				Version: protocol.Version,
+				MsgType: protocol.MsgTypeClose,
+				Payload: []byte(fmt.Sprintf("zerofeed/relay: unsupported protocol version (minimum required: 0x%02X)", protocol.MinSupportedVersion)),
+			}
+			_ = protocol.Encode(conn, closeEnv)
+		} else if !errors.Is(err, io.EOF) {
 			srv.rateLimiter.RecordFailure(remoteAddr)
 			srv.metrics.MalformedPacketsDroppedTotal.Add(1)
 		}

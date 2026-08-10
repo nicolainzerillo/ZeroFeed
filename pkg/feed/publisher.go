@@ -200,6 +200,14 @@ func (p *PublisherEngine) CompleteHandshake(timeout time.Duration) error {
 		return fmt.Errorf("zerofeed/feed: failed to receive subscriber PAKE response: %w", err)
 	}
 
+	if env.MsgType == protocol.MsgTypeClose {
+		return fmt.Errorf("zerofeed/feed: session closed by peer/relay: %s", string(env.Payload))
+	}
+
+	if env.Version < protocol.MinSupportedVersion {
+		return fmt.Errorf("zerofeed/feed: subscriber is using incompatible protocol version 0x%02X (expected 0x%02X+)", env.Version, protocol.MinSupportedVersion)
+	}
+
 	if env.MsgType != protocol.MsgTypePAKEInitSub && env.MsgType != protocol.MsgTypePAKEStep2 {
 		return fmt.Errorf("zerofeed/feed: unexpected frame type during handshake: %d", env.MsgType)
 	}

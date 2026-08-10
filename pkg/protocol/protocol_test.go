@@ -2,6 +2,7 @@ package protocol_test
 
 import (
 	"bytes"
+	"errors"
 	"testing"
 
 	"github.com/zerofeed/zerofeed/pkg/protocol"
@@ -62,3 +63,62 @@ func TestInvalidMagicHeader(t *testing.T) {
 		t.Fatalf("expected ErrInvalidMagic, got %v", err)
 	}
 }
+
+func TestProtocolVersionCheck(t *testing.T) {
+	var sessionID [protocol.SessionIDSize]byte
+	var nonce [protocol.NonceSize]byte
+
+	// 1. Version 0x01 (below MinSupportedVersion) -> expect error wrapping ErrUnsupportedVer
+	oldEnv := &protocol.Envelope{
+		Version:   0x01,
+		MsgType:   protocol.MsgTypePAKEInitPub,
+		SessionID: sessionID,
+		Nonce:     nonce,
+		Payload:   []byte("test"),
+	}
+	buf := new(bytes.Buffer)
+	if err := protocol.Encode(buf, oldEnv); err != nil {
+		t.Fatalf("Encode v0x01 failed: %v", err)
+	}
+	_, err := protocol.Decode(buf)
+	if err == nil || !errors.Is(err, protocol.ErrUnsupportedVer) {
+		t.Fatalf("expected ErrUnsupportedVer for version 0x01, got %v", err)
+	}
+
+	// 2. Version 0x02 (current version) -> expect success
+	currEnv := &protocol.Envelope{
+		Version:   0x02,
+		MsgType:   protocol.MsgTypePAKEInitPub,
+		SessionID: sessionID,
+		Nonce:     nonce,
+		Payload:   []byte("test"),
+	}
+	buf.Reset()
+	_ = protocol.Encode(buf, currEnv)
+	decodedCurr, err := protocol.Decode(buf)
+	if err != nil {
+		t.Fatalf("Decode v0x02 failed: %v", err)
+	}
+	if decodedCurr.Version != 0x02 {
+		t.Errorf("got version %d, want 2", decodedCurr.Version)
+	}
+
+	// 3. Version 0x03 (future version >= MinSupportedVersion) -> expect success (forward compatible)
+	futEnv := &protocol.Envelope{
+		Version:   0x03,
+		MsgType:   protocol.MsgTypePAKEInitPub,
+		SessionID: sessionID,
+		Nonce:     nonce,
+		Payload:   []byte("future"),
+	}
+	buf.Reset()
+	_ = protocol.Encode(buf, futEnv)
+	decodedFut, err := protocol.Decode(buf)
+	if err != nil {
+		t.Fatalf("Decode v0x03 failed: %v", err)
+	}
+	if decodedFut.Version != 0x03 {
+		t.Errorf("got version %d, want 3", decodedFut.Version)
+	}
+}
+

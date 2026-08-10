@@ -1,6 +1,7 @@
 package relay_test
 
 import (
+	"bytes"
 	"context"
 	"net"
 	"testing"
@@ -174,3 +175,48 @@ func TestRelaySubscriberFirstConnectionOrdering(t *testing.T) {
 		t.Fatalf("expected 'sub-first-init', got '%s'", string(receivedByPub.Payload))
 	}
 }
+
+func TestRelayUnsupportedProtocolVersionRejection(t *testing.T) {
+	srv := relay.NewServer("127.0.0.1:0")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() {
+		_ = srv.Start(ctx)
+	}()
+
+	<-srv.Ready()
+	addr := srv.Addr()
+
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		t.Fatalf("failed to dial relay: %v", err)
+	}
+	defer conn.Close()
+
+	// Send frame with Version 0x01 (below MinSupportedVersion 0x02)
+	oldEnv := &protocol.Envelope{
+		Version:   0x01,
+		MsgType:   protocol.MsgTypePAKEInitPub,
+		SessionID: [protocol.SessionIDSize]byte{0x01},
+		Payload:   []byte("old-client"),
+	}
+	if err := protocol.Encode(conn, oldEnv); err != nil {
+		t.Fatalf("failed to send old env: %v", err)
+	}
+
+	// Relay should send MsgTypeClose frame with version rejection payload
+	resp, err := protocol.Decode(conn)
+	if err != nil {
+		t.Fatalf("failed to receive response from relay: %v", err)
+	}
+
+	if resp.MsgType != protocol.MsgTypeClose {
+		t.Errorf("expected MsgTypeClose, got %d", resp.MsgType)
+	}
+
+	if !bytes.Contains(resp.Payload, []byte("unsupported protocol version")) {
+		t.Errorf("expected payload to explain unsupported version, got: %s", string(resp.Payload))
+	}
+}
+

@@ -4,7 +4,8 @@ import "encoding/binary"
 
 const (
 	// Protocol version
-	Version uint8 = 0x02
+	Version             uint8 = 0x02
+	MinSupportedVersion uint8 = 0x02
 
 	// Frame Types
 	MsgTypePAKEInitPub uint8 = 0x01 // Publisher initial handshake
