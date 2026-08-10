@@ -64,6 +64,10 @@ func main() {
 		runPublish(args)
 	case "subscribe", "sub":
 		runSubscribe(args)
+	case "invite":
+		runInvite(args)
+	case "join":
+		runJoin(args)
 	case "relay":
 		runRelay(args)
 	case "gen", "generate":
@@ -226,12 +230,16 @@ func runPublish(args []string) {
 		tModeStr = "QUIC (UDP)"
 	}
 
+	inv := feed.GenerateInvite(passVal, relayAddr)
+
 	logStderr(*quiet, "====================================================\n")
 	logStderr(*quiet, " [ZeroFeed Publisher] Active Session\n")
 	logStderr(*quiet, " Code / Passphrase : %s\n", passVal)
 	logStderr(*quiet, " Session ID        : %x\n", pub.SessionID())
 	logStderr(*quiet, " Relay Server      : %s\n", relayAddr)
 	logStderr(*quiet, " Transport Mode    : %s\n", tModeStr)
+	logStderr(*quiet, " Web Link          : %s\n", inv.ToWebURL())
+	logStderr(*quiet, " Native URI        : %s\n", inv.ToURI())
 	logStderr(*quiet, " Session TTL       : %s\n", ttlDuration)
 	logStderr(*quiet, " Stream Mode       : %t\n", *streamMode)
 	logStderr(*quiet, "====================================================\n")
@@ -340,13 +348,33 @@ func runSubscribe(args []string) {
 	_ = fs.Parse(args)
 
 	passVal := parsePassphrase(p1, p2, p3, p4, p5)
+	if passVal == "" && len(fs.Args()) > 0 {
+		passVal = fs.Args()[0]
+	}
 	if passVal == "" {
-		fmt.Fprintln(os.Stderr, "Error: --passphrase (or -p, -c, --code, --channel) is required.")
+		fmt.Fprintln(os.Stderr, "Error: --passphrase (or -p, -c, --code, --channel or positional invite URI) is required.")
 		fs.Usage()
 		os.Exit(1)
 	}
 
-	relayAddr := resolveRelayAddr(*r1, *r2)
+	var relayAddr string
+	inv, invErr := feed.ParseInvite(passVal)
+	if invErr == nil && inv != nil {
+		passVal = inv.Code
+		if inv.RelayAddr != "" && *r1 == "" && *r2 == "" {
+			relayAddr = inv.RelayAddr
+		} else {
+			relayAddr = resolveRelayAddr(*r1, *r2)
+		}
+		if inv.TransportMode == "quic" {
+			*quicMode = true
+		}
+		if inv.SPKIFingerprint != "" && *fingerprint == "" {
+			*fingerprint = inv.SPKIFingerprint
+		}
+	} else {
+		relayAddr = resolveRelayAddr(*r1, *r2)
+	}
 
 	codeBytes := []byte(passVal)
 	crypto.RegisterBuffer(codeBytes)
@@ -523,11 +551,51 @@ func generateChannelCode() string {
 	return fmt.Sprintf("%s-%s-%s-%s-%s-%d", w1, w2, w3, w4, w5, num)
 }
 
+func runInvite(args []string) {
+	fs := flag.NewFlagSet("invite", flag.ExitOnError)
+	p1 := fs.String("passphrase", "", "Shared passphrase for E2EE session")
+	p2 := fs.String("code", "", "Shared passphrase (alias)")
+	r1 := fs.String("relay", "", "Relay server address")
+	r2 := fs.String("r", "", "Relay server address (shorthand)")
+	_ = fs.Parse(args)
+
+	passVal := parsePassphrase(p1, p2, nil, nil, nil)
+	if passVal == "" && len(fs.Args()) > 0 {
+		passVal = fs.Args()[0]
+	}
+	if passVal == "" {
+		passVal = generateChannelCode()
+	}
+
+	relayAddr := *r1
+	if relayAddr == "" {
+		relayAddr = *r2
+	}
+	if relayAddr == "" {
+		relayAddr = os.Getenv("ZEROFEED_RELAY")
+	}
+	if relayAddr == "" {
+		relayAddr = feed.DefaultRelayDNS + ":" + feed.DefaultRelayPort
+	}
+	inv := feed.GenerateInvite(passVal, relayAddr)
+	fmt.Println(inv.FormatBanner())
+}
+
+func runJoin(args []string) {
+	if len(args) == 0 {
+		fmt.Fprintf(os.Stderr, "Usage: zerofeed join <invite-code-or-uri-or-url>\n")
+		os.Exit(1)
+	}
+	runSubscribe(args)
+}
+
 func printUsage() {
 	fmt.Println("ZeroFeed: Zero-Knowledge Ephemeral Pub/Sub Engine")
 	fmt.Println("\nUsage:")
-	fmt.Println("  zerofeed publish --channel <code|passphrase> [--ttl 5m] [--stream] [--quic] [--quiet]")
-	fmt.Println("  zerofeed subscribe --code <code|passphrase> [--stream] [--quic] [--quiet]")
+	fmt.Println("  zerofeed invite [code] [--relay <addr>]")
+	fmt.Println("  zerofeed join <invite|code|uri>")
+	fmt.Println("  zerofeed publish [--channel <code|passphrase>] [--ttl 5m] [--stream] [--quic] [--quiet]")
+	fmt.Println("  zerofeed subscribe --code <code|passphrase|uri> [--stream] [--quic] [--quiet]")
 	fmt.Println("  zerofeed relay [--port 8443] [--quic]")
 	fmt.Println("  zerofeed gen")
 	fmt.Println("  zerofeed version")

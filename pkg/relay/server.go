@@ -41,6 +41,11 @@ func NewServer(listenAddr string) *Server {
 	}
 }
 
+// DisableRateLimiting disables IP rate limiting (useful for benchmarks/stress tests on localhost).
+func (srv *Server) DisableRateLimiting() {
+	srv.rateLimiter.SetEnabled(false)
+}
+
 // Metrics returns the zero-knowledge metrics collector instance.
 func (srv *Server) Metrics() *Metrics {
 	return srv.metrics

@@ -71,7 +71,19 @@ func TestCLIE2EPipeline(t *testing.T) {
 		_ = relayCmd.Process.Kill()
 	}()
 
-	time.Sleep(300 * time.Millisecond)
+	relayReady := false
+	for i := 0; i < 30; i++ {
+		conn, err := net.DialTimeout("tcp", relayAddr, 100*time.Millisecond)
+		if err == nil {
+			conn.Close()
+			relayReady = true
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if !relayReady {
+		t.Fatalf("relay failed to start listening on %s within 3s. Output: %s", relayAddr, relayLog.String())
+	}
 
 	passphrase := "cli-e2e-sha256-test-passphrase-2026"
 

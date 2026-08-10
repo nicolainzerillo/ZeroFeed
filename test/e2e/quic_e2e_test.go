@@ -5,6 +5,7 @@ package e2e_test
 import (
 	"bytes"
 	"context"
+	"net"
 	"os/exec"
 	"strings"
 	"testing"
@@ -30,7 +31,19 @@ func TestCLIQUICPubSubPipeline(t *testing.T) {
 		_ = relayCmd.Process.Kill()
 	}()
 
-	time.Sleep(300 * time.Millisecond)
+	relayReady := false
+	for i := 0; i < 30; i++ {
+		conn, err := net.DialTimeout("tcp", "127.0.0.1:18443", 100*time.Millisecond)
+		if err == nil {
+			conn.Close()
+			relayReady = true
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if !relayReady {
+		t.Fatalf("quic relay failed to start listening on 127.0.0.1:18443 within 3s")
+	}
 
 	passphrase := "e2e-quic-test-code-99"
 

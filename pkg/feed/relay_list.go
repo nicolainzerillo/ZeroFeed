@@ -8,12 +8,26 @@ import (
 	"time"
 )
 
-// DefaultRelayDNS is the DNS name used to discover the default public relay list.
-// Kept separate from any hardcoded IP. Override with ZEROFEED_RELAY env var or --relay flag.
+// DefaultRelays is the ordered list of public relay endpoints used when no
+// --relay flag or ZEROFEED_RELAY env var is set.
+//
+// Two DNS records provide a dual-layer indirection strategy:
+//   - relay.zerofeed.app     → primary (future anycast / round-robin)
+//   - fallback.relay.zerofeed.app → secondary (single node, separate DNS record)
+//
+// Both records can be updated in DNS without any code change or client release.
+// No raw IP addresses are hardcoded here — update the DNS record if the server changes.
+var DefaultRelays = []string{
+	"relay.zerofeed.app:8443",
+	"fallback.relay.zerofeed.app:8443",
+}
+
+// DefaultRelayDNS is kept for display purposes in error messages.
 const DefaultRelayDNS = "relay.zerofeed.app"
 
-// DefaultRelayPort is the default port used when resolving DefaultRelayDNS.
+// DefaultRelayPort is the default port used when resolving individual DNS records.
 const DefaultRelayPort = "8443"
+
 
 // ParseRelayList splits a comma-separated relay address string into a slice.
 // Each entry is trimmed of whitespace. Empty entries are ignored.
