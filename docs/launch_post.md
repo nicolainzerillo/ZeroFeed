@@ -1,41 +1,55 @@
-# HackerNews / Reddit Launch Post Draft
+# HackerNews / Reddit / ProductHunt Launch Post (ZeroFeed v1.3.0)
 
-## Title Option 1:
-> **Show HN: ZeroFeed – Zero-knowledge, ephemeral E2EE Pub/Sub CLI in pure Go**
+## Title Option 1 (Recommended for Show HN):
+> **Show HN: ZeroFeed – Post-Quantum, Zero-Knowledge Pub/Sub CLI & WASM Engine**
 
-## Title Option 2:
-> **ZeroFeed: RAM-only, end-to-end encrypted pub/sub CLI and Go library**
+## Title Option 2 (Recommended for r/netsec / r/golang):
+> **ZeroFeed v1.3: NIST FIPS 203 ML-KEM-768 + X25519 Hybrid E2EE Pub/Sub in Pure Go & WASM**
 
 ---
 
 ## Post Body:
 
-Hi Hacker News,
+Hi Hacker News & Security Community,
 
-I built **ZeroFeed**: a lightweight, zero-dependency command-line utility and pure Go library for streaming sensitive payloads (API tokens, configs, live Docker logs, database dumps, multi-file archives) between nodes with zero-knowledge E2EE guarantees.
+I'm excited to share **ZeroFeed v1.3.0**: a zero-knowledge, Post-Quantum hybrid encrypted pub/sub CLI utility, Go engine, and WASM web client designed for streaming sensitive payloads (API tokens, configs, live Docker logs, database dumps, multi-file archives) across untrusted networks.
 
-### Why build ZeroFeed?
-Existing secret-sharing tools often rely on centralized web services that store encrypted payloads in databases or S3 buckets (even if temporary). Tools like `croc` or `magic-wormhole` are great for one-off file transfers, but not optimized for continuous, RAM-only pub/sub streaming or Unix pipeline composition.
+### 🛡️ Why ZeroFeed?
 
-ZeroFeed was built around a few strict architectural constraints:
+Existing secret-sharing tools often rely on centralized web services that store encrypted payloads in databases or S3 buckets. Tools like `croc` or `magic-wormhole` are great for one-off file transfers, but not optimized for continuous, RAM-only pub/sub streaming, WebAssembly in-browser decryption, or Post-Quantum key exchange.
 
-1. **Zero-Knowledge & Ephemerality**: Payloads reside strictly in RAM and are never written to disk on intermediate servers or relay nodes.
-2. **Pure Go Stdlib (0 Dependencies)**: Built entirely using Go standard library primitives (`crypto/ecdh`, `crypto/aes`, `crypto/cipher`, `crypto/sha256`, `net`, `sync`). Static binary size is ~3.8 MB.
-3. **E2EE & SPAKE2 PAKE**: Mutual key exchange via SPAKE2 (Curve25519) and payload encryption via AES-256-GCM AEAD.
-4. **Standby & Reconnect Resilience**: Monotonic 64-bit sequence numbers (`SeqNum uint64`) with an in-memory 100-message circular replay buffer. If a subscriber experiences a Wi-Fi drop or laptop sleep, it auto-reconnects with exponential backoff and catches up without data loss.
-5. **Compiler-Safe Memory Zeroing**: Sensitive key buffers are zeroed using `runtime.KeepAlive` to prevent compiler optimization routines from stripping memory wipes.
+ZeroFeed adheres strictly to 6 core engineering principles:
+
+1. **Post-Quantum Hybrid E2EE (NIST FIPS 203 ML-KEM-768 + X25519 PAKE)**:
+   Key exchange combines Post-Quantum Kyber/ML-KEM-768 lattice cryptography with classical X25519 PAKE (aligned with **ACN Italia July 2024 PQC Guidance**, **NIST FIPS 203**, and **ETSI TS 103 744**). Protects against "Store Now, Decrypt Later" quantum attacks.
+
+2. **Stateless Rendezvous & Client-Generated Invites**:
+   Intermediate relays maintain **zero persistent state**, **zero databases**, and **zero payload logs**. Invites (`zerofeed invite [code]`) generate 100% client-side terminal ASCII banners, `zerofeed://` native URIs, and Web `#join=` URL hash fragments for instant browser decryption.
+
+3. **Short Authentication String (SAS) Visual Badges**:
+   Displays a deterministic 8-hex character fingerprint and 4-emoji visual badge (`[🛡️ ⚡ 🚀 💎]`) on both subscriber and publisher terminals after PAKE completion for instant out-of-band Anti-MITM verification.
+
+4. **In-Stream Key Rekeying & Backpressure Flow Control**:
+   Automatic AES-256-GCM AEAD key ratcheting every 1 GB transferred or every 1 hour, immediately zeroizing parent keys in RAM. Watermark-driven flow control (`HighWatermark` 80% / `LowWatermark` 40%) pauses fast publishers on slow subscriber sessions to prevent relay RAM saturation.
+
+5. **OS & Memory Hygiene (`mlockall` + `DisableCoreDumps` + `ZeroBytes`)**:
+   Prevents sensitive key paging to disk via `mlockall(MCL_CURRENT|MCL_FUTURE)`, disables core dump creation via `setrlimit(RLIMIT_CORE, 0)`, and scrubs key slices using `crypto.ZeroBytes()` with `runtime.KeepAlive()` to prevent compiler dead-store elimination.
+
+6. **Dual Transport (TCP/QUIC for CLI & WebSocket for WASM)**:
+   The CLI communicates over native TCP / QUIC (`:8443`), while browser clients decrypt streams in-browser via WebAssembly over WebSocket (`:8444`). Try it live against our public RAM-only Oracle Cloud relay (`92.4.216.150:8443` in Turin `eu-turin-1`):
+   👉 **Web Landing Page**: https://nicolainzerillo.github.io/ZeroFeed-Landing/
 
 ---
 
-### Real-World Use Cases & Recipes:
+### 💻 Real-World Use Cases & CLI Recipes:
 
 **1. Stream Remote Docker Logs Live (E2EE):**
 ```bash
 # On Remote Server:
 docker logs -f prod_container | zerofeed publish --channel prod-logs --stream
 
-# On Dev Machine:
-zerofeed subscribe --code prod-logs --stream
+# On Dev Laptop:
+zerofeed join zerofeed://join?code=prod-logs
 ```
 
 **2. Zero-Disk Database Backup Migration (PostgreSQL):**
@@ -50,12 +64,47 @@ zerofeed subscribe --code db-snap --stream | psql -U postgres staging_db
 **3. Stream Multiple PDFs / Folders E2EE (`tar` Pipe):**
 ```bash
 # Publisher:
-tar -czf - doc1.pdf doc2.pdf doc3.pdf | zerofeed publish --channel 5-omega-phoenix --stream
+tar -czf - doc1.pdf doc2.pdf doc3.pdf | zerofeed publish --channel cipher-falcon-orbit-948201 --stream
 
 # Subscriber:
-zerofeed subscribe --code 5-omega-phoenix --stream | tar -xzf -
+zerofeed subscribe --code cipher-falcon-orbit-948201 --stream | tar -xzf -
 ```
 
-The code and full protocol spec are open-source: https://github.com/zerofeed/zerofeed
+**4. 1-Click Self-Hosted RAM-Only Docker Relay:**
+```bash
+docker run -d --name zerofeed-relay -p 8443:8443/tcp -p 8443:8443/udp -p 8444:8444/tcp -p 9090:9090/tcp --read-only zerofeed/relay:v1.3.0
+```
 
-I'd love to hear your feedback on the architecture, protocol framing, or cryptographic design!
+---
+
+### ⚖️ Threat Model & Known Limitations
+
+To maintain absolute transparency with security researchers:
+
+- **Zero-Knowledge Relay (ZKR) Architecture**: ZeroFeed uses a Zero-Knowledge Relay Architecture. The relay matches session IDs via Argon2id Blind HMAC tags without knowing passphrases, session keys, or payload contents. (ZeroFeed does not use ZK-SNARKs; "Zero-Knowledge" refers to intermediate relay blindness).
+- **IP Anonymity & Traffic Fingerprinting**: ZeroFeed guarantees payload confidentiality and authenticity. It does not hide IP addresses or traffic timing against global network adversaries. For full IP anonymity, run ZeroFeed over **Tor** (`torsocks zerofeed ...`) or **I2P**.
+- **PQC Wire Framing**: ML-KEM-768 wire frames (1216B / 1120B) are explicitly engineered under standard 1500-byte Ethernet MTUs to prevent IP-layer fragmentation.
+- **Native CLI vs Web WASM**: The native Go CLI is the primary target for maximum side-channel resistance (`mlockall` + `DisableCoreDumps`). Web WASM is provided as a zero-installation preview client.
+
+---
+
+### 🔍 Technical FAQ & Cryptographic Deep Dive
+
+**Q: How are low-entropy human codes protected against offline dictionary brute-force attacks by malicious relays?**
+> **A:** Before performing the hybrid X25519 PAKE + ML-KEM-768 key exchange, ZeroFeed passes human passphrases through **Argon2id** (`64 MB RAM, time=1, threads=1`). The relay only sees a 32-byte Blind HMAC match tag derived from Argon2id (`DeriveBlindMatchTag`). A malicious relay cannot test guessed passphrases offline without computing memory-hard Argon2id hashes for every candidate code.
+
+**Q: How do you prevent Go Garbage Collector & stack movement from leaking key material in RAM?**
+> **A:** On startup, ZeroFeed calls `crypto.LockMemory()` which executes `mlockall(MCL_CURRENT|MCL_FUTURE)` on Linux/macOS to lock process memory pages and disable swap paging. Additionally, core dumps are explicitly disabled via `setrlimit(RLIMIT_CORE, 0)` (`DisableCoreDumps()`), and all cryptographic buffers are zeroed using `crypto.ZeroBytes()` bound with `runtime.KeepAlive()` to block compiler optimization passes.
+
+**Q: How does the Web client authenticate TLS and prevent Mixed-Content blocks?**
+> **A:** ZeroFeed supports both DNS indirection (`--relay relay.zerofeed.app`) and Subject Public Key Info (SPKI) certificate pinning (`CalculateSPKIFingerprint`). The CLI and WASM engines compute and match the SHA-256 digest of the server's public key info, securing connection integrity even when connecting directly to IP endpoints or self-hosted relays.
+
+---
+
+### 📦 Code & Architecture Specs:
+
+- **GitHub Repository**: https://github.com/nicolainzerillo/ZeroFeed
+- **Web Landing Page & WASM**: https://nicolainzerillo.github.io/ZeroFeed-Landing/
+- **PQC State-of-the-Art Hub**: https://github.com/nicolainzerillo/ZeroFeed-PQC-StateOfTheArt
+
+I'd love to hear your feedback on the architecture, Post-Quantum PAKE framing, or protocol zero-knowledge design!

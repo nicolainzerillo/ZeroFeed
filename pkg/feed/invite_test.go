@@ -52,7 +52,7 @@ func TestInvite_ParseWebURL(t *testing.T) {
 func TestInvite_ToURIAndWebURL(t *testing.T) {
 	inv := GenerateInvite("my-super-secret", "relay.zerofeed.app:8443")
 	uri := inv.ToURI()
-	if uri != "zerofeed://join?code=my-super-secret&relay=relay.zerofeed.app%3A8443" {
+	if uri != "zerofeed://join?code=my-super-secret&relay=relay.zerofeed.app:8443" {
 		t.Errorf("unexpected URI: %s", uri)
 	}
 

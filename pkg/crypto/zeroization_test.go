@@ -89,3 +89,19 @@ func TestMemoryZeroization(t *testing.T) {
 		}
 	}
 }
+
+func TestZeroBytesSlice(t *testing.T) {
+	s1 := []byte("secret-slice-one")
+	s2 := []byte("secret-slice-two")
+	s3 := []byte("secret-slice-three")
+
+	crypto.ZeroBytesSlice(s1, s2, s3)
+
+	for _, s := range [][]byte{s1, s2, s3} {
+		for i, b := range s {
+			if b != 0 {
+				t.Errorf("byte at index %d was not zeroed: %d", i, b)
+			}
+		}
+	}
+}

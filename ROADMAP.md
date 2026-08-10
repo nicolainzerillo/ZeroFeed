@@ -1,6 +1,6 @@
 # ZeroFeed — Roadmap
 
-> **Current stable release**: v1.2  
+> **Current stable release**: v1.3  
 > **Repository**: [github.com/zerofeed/zerofeed](https://github.com/zerofeed/zerofeed)
 
 ZeroFeed is a zero-knowledge, end-to-end encrypted pub/sub CLI and Go engine.  
@@ -8,53 +8,46 @@ This roadmap is public and honest: items listed here are concrete engineering go
 
 ---
 
-## ✅ v1.2 — Current Release
+## ✅ v1.3 — Current Release
 
-- Post-Quantum Hybrid E2EE: **NIST FIPS 203 ML-KEM-768** + X25519 PAKE (ACN Italia 2024/2026 aligned)
-- AES-256-GCM AEAD stream encryption with per-session key derivation
-- QUIC transport (`-tags quic`) with automatic TCP fallback
-- WebSocket relay endpoint (`8444`) for browser-side E2EE decryption via WASM
-- In-memory 100-message circular replay buffer with automatic reconnect backoff
-- RAM-only relay node: zero disk persistence, zero payload logs
-- Anti-brute-force relay: IP rate-limiting, 3-strike PAKE ban
-- Prometheus metrics endpoint (`/metrics`) — zero-knowledge, no IPs/keys logged
-- File transfer with `TagFileStart`/`TagFileChunk`/`TagFileEnd` protocol frames
-- `mlockall` + `DisableCoreDumps` + `crypto.ZeroBytes()` memory hygiene
-- Multi-subscriber fan-out on a single channel code
-- P2P direct mode (`--p2p`) with STUN/UDP hole punching fallback
+> Focus: **Relay resilience**, **Stateless Invites**, and **Enterprise Unit Test Suite**
 
----
-
-## 🔨 v1.3 — In Progress
-
-> Focus: **Relay resilience** and **Unix correctness**
-
-- [ ] **Multi-relay list with automatic fallback**  
-  The CLI currently requires a single `--relay` address. v1.3 will accept a comma-separated list (or a well-known default list) and fall through to the next relay on connection failure. This removes the single point of failure on the public Oracle relay.  
-  _Tracked in_: `pkg/feed`, `main.go` flag parsing
-
-- [ ] **`SIGPIPE` graceful termination**  
-  Piping `zerofeed sub | head -n 10` currently panics or prints a traceback on early consumer exit. Handle `syscall.SIGPIPE` and exit cleanly with status 0.
-
-- [ ] **Relay backpressure / flow control**  
-  A fast publisher on a slow-subscriber session can buffer unbounded chunks in relay RAM. Implement relay-side read-halt when subscriber buffer exceeds a configurable threshold (default: 16 MB).
-
-- [ ] **Configurable relay address via `ZEROFEED_RELAY` env var** _(done in main, needs CLI flag parity)_
+- [x] **Multi-relay list with automatic fallback**  
+  The CLI accepts a comma-separated list of relay addresses (or resolves default DNS relays) and falls through to the next relay on connection failure, eliminating single points of failure.  
+  _Implemented in_: `pkg/feed/relay_list.go`, `main.go`
+- [x] **Client-Generated Stateless Invite System**  
+  Zero-knowledge, 100% stateless invite links (`zerofeed invite [code]` / `zerofeed join <invite>`) supporting terminal ASCII cards, native `zerofeed://` URIs, and Web `#join=` URL fragments.  
+  _Implemented in_: `pkg/feed/invite.go`, `main.go`, `ZeroFeed-Landing`
+- [x] **`SIGPIPE` graceful termination**  
+  Piping `zerofeed sub | head -n 10` handles `syscall.SIGPIPE` and exits cleanly with status 0 without printing panics or tracebacks.  
+  _Implemented in_: `main.go`
+- [x] **Relay backpressure / flow control**  
+  Watermark-driven flow control (`HighWatermark` 80% / `LowWatermark` 40%) with `WaitForDrain()` pauses fast publishers on slow subscriber sessions to prevent relay RAM saturation.  
+  _Implemented in_: `pkg/relay/session.go`, `pkg/relay/slow_consumer_test.go`
+- [x] **Configurable relay address via `ZEROFEED_RELAY` env var**  
+  Full parity between CLI `--relay` flag and `ZEROFEED_RELAY` environment variable.  
+  _Implemented in_: `main.go`, `pkg/feed/relay_list.go`
+- [x] **SAS (Short Authentication String) visual badge**  
+  Displays deterministic 8-hex character fingerprint and 4-emoji visual badge (`[🛡️ ⚡ 🚀 💎]`) on both terminals after PAKE completion for out-of-band Anti-MITM verification.  
+  _Implemented in_: `pkg/crypto/cipher.go`, `main.go`
+- [x] **In-stream key rekeying (Forward Secrecy per chunk)**  
+  Automatic session key ratcheting every 1 GB transferred or every 1 hour, zeroizing parent keys in RAM immediately.  
+  _Implemented in_: `pkg/feed/publisher.go`, `pkg/crypto/cipher.go`
+- [x] **Enterprise Security-Grade Unit Test Suite (>85% target coverage)**  
+  Extensive Table-Driven tests, native Go Fuzzing (`FuzzDecodeEnvelope`), memory zeroization assertions (`ZeroBytesSlice`), and Prometheus metrics unit tests.  
+  _Implemented in_: `pkg/crypto`, `pkg/feed`, `pkg/relay`, `pkg/transport`, `pkg/protocol`
 
 ---
 
 ## 🗓️ v1.4 — Planned
 
-> Focus: **Authentication hardening** and **observability**
-
-- [ ] **SAS (Short Authentication String) visual badge**  
-  Display a 4-char visual fingerprint on both terminals after PAKE completion (`[🛡️ 9A4F]`). Provides out-of-band verification that both peers completed the same PAKE without MITM. No code change needed on the relay.
-
-- [ ] **In-stream key rekeying (Forward Secrecy per chunk)**  
-  Automatic session key rotation every 1 GB transferred or every 1 hour. Protects long-running streams from retrospective decryption if a session key is later compromised.
+> Focus: **Observability** and **Developer Experience**
 
 - [ ] **Structured JSON logging mode** (`--log-format json`)  
   Machine-readable log output for CI/CD pipelines and log aggregators (Loki, Datadog, etc.) without leaking payload content.
+
+- [ ] **Automated CI/CD Release Pipelines & Multi-arch Binaries**  
+  GitHub Actions matrix generating static binaries for `darwin/arm64`, `darwin/amd64`, `linux/amd64`, `linux/arm64`, and `windows/amd64`.
 
 ---
 
@@ -78,8 +71,6 @@ These are confirmed directions, not committed timelines.
 
 ## Contributing
 
-See [`CONTRIBUTING.md`](CONTRIBUTING.md) (coming in v1.3) for development setup.  
-
-Good first issues are tagged [`good first issue`](https://github.com/zerofeed/zerofeed/labels/good%20first%20issue) on GitHub.
+See [`CONTRIBUTING.md`](CONTRIBUTING.md) for development setup.  
 
 Architecture decisions and protocol specs live in [`docs/`](docs/).

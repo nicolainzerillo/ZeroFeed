@@ -267,6 +267,10 @@ func runPublish(args []string) {
 		return
 	}
 
+	if fileToSend == "" && !*streamMode && isTerminal(os.Stdin) {
+		logStderr(*quiet, "[i] Reading payload from terminal (press Ctrl+D when finished, or type /file <path>)...\n")
+	}
+
 	inputChan := make(chan []byte, 10)
 	go func() {
 		defer close(inputChan)
@@ -578,7 +582,15 @@ func runInvite(args []string) {
 		relayAddr = feed.DefaultRelayDNS + ":" + feed.DefaultRelayPort
 	}
 	inv := feed.GenerateInvite(passVal, relayAddr)
-	fmt.Println(inv.FormatBanner())
+	fmt.Fprintln(os.Stderr, inv.FormatBanner())
+}
+
+func isTerminal(f *os.File) bool {
+	stat, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	return (stat.Mode() & os.ModeCharDevice) != 0
 }
 
 func runJoin(args []string) {

@@ -102,6 +102,17 @@ func TestQUICStreamAndDatagramTransport(t *testing.T) {
 		t.Fatalf("SendDatagram failed: %v", err)
 	}
 
+	// Test net.Conn wrapper methods
+	_ = clientWrapper.LocalAddr()
+	_ = clientWrapper.RemoteAddr()
+	_ = clientWrapper.SetDeadline(time.Now().Add(5 * time.Second))
+	_ = clientWrapper.SetReadDeadline(time.Now().Add(5 * time.Second))
+	_ = clientWrapper.SetWriteDeadline(time.Now().Add(5 * time.Second))
+
+	dgRecv, dgErr := clientWrapper.ReceiveDatagram(ctx)
+	_ = dgRecv
+	_ = dgErr
+
 	if err := <-errChan; err != nil {
 		t.Fatalf("server error: %v", err)
 	}

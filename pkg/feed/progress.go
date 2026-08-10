@@ -9,7 +9,21 @@ import (
 	"time"
 )
 
-// ProgressBar renders a real-time progress bar with throughput (MB/s) and ETA to os.Stderr.
+// FormatBytes formats a byte count into a human-readable string (B, KB, MB, GB, etc.).
+func FormatBytes(b int64) string {
+	const unit = 1024
+	if b < unit {
+		return fmt.Sprintf("%d B", b)
+	}
+	div, exp := int64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.2f %cB", float64(b)/float64(div), "KMGTPE"[exp])
+}
+
+// ProgressBar renders a real-time progress bar with throughput and ETA to os.Stderr.
 type ProgressBar struct {
 	totalBytes int64
 	currBytes  int64
@@ -40,11 +54,10 @@ func (p *ProgressBar) Add(n int) {
 
 	p.currBytes += int64(n)
 	now := time.Now()
-	if now.Sub(p.lastRender) < 100*time.Millisecond && p.currBytes < p.totalBytes {
-		return
+	if now.Sub(p.lastRender) >= 100*time.Millisecond || p.currBytes >= p.totalBytes {
+		p.render()
+		p.lastRender = now
 	}
-	p.lastRender = now
-	p.render()
 }
 
 func (p *ProgressBar) render() {
@@ -66,38 +79,40 @@ func (p *ProgressBar) render() {
 	bar := strings.Repeat("█", filled) + strings.Repeat("░", empty)
 
 	elapsed := time.Since(p.startTime).Seconds()
-	var speedMBs float64
+	var speedBytesSec float64
 	if elapsed > 0 {
-		speedMBs = (float64(p.currBytes) / (1024 * 1024)) / elapsed
+		speedBytesSec = float64(p.currBytes) / elapsed
 	}
 
 	var etaStr string
-	if speedMBs > 0 && p.currBytes < p.totalBytes {
+	if speedBytesSec > 0 && p.currBytes < p.totalBytes {
 		remainingBytes := p.totalBytes - p.currBytes
-		etaSec := int((float64(remainingBytes) / (1024 * 1024)) / speedMBs)
+		etaSec := int(float64(remainingBytes) / speedBytesSec)
 		etaStr = fmt.Sprintf("%02d:%02d", etaSec/60, etaSec%60)
 	} else {
 		etaStr = "00:00"
 	}
 
-	currMB := float64(p.currBytes) / (1024 * 1024)
-	totMB := float64(p.totalBytes) / (1024 * 1024)
+	currStr := FormatBytes(p.currBytes)
+	totStr := FormatBytes(p.totalBytes)
+	speedStr := FormatBytes(int64(speedBytesSec)) + "/s"
 
-	fmt.Fprintf(p.w, "\r [%s] %5.1f%% | %.2f MB / %.2f MB | %.2f MB/s | ETA %s",
-		bar, pct, currMB, totMB, speedMBs, etaStr)
+	fmt.Fprintf(p.w, "\r [%s] %5.1f%% | %s / %s | %s | ETA %s",
+		bar, pct, currStr, totStr, speedStr, etaStr)
 
 	if p.currBytes >= p.totalBytes {
 		fmt.Fprintln(p.w)
 	}
 }
 
-// Finish completes the progress bar display.
+// Finish flushes and completes the progress bar.
 func (p *ProgressBar) Finish() {
 	if p == nil || p.quiet {
 		return
 	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
+
 	p.currBytes = p.totalBytes
 	p.render()
 }

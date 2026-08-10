@@ -219,4 +219,3 @@ func TestRelayUnsupportedProtocolVersionRejection(t *testing.T) {
 		t.Errorf("expected payload to explain unsupported version, got: %s", string(resp.Payload))
 	}
 }
-

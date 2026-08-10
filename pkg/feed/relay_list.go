@@ -28,7 +28,6 @@ const DefaultRelayDNS = "relay.zerofeed.app"
 // DefaultRelayPort is the default port used when resolving individual DNS records.
 const DefaultRelayPort = "8443"
 
-
 // ParseRelayList splits a comma-separated relay address string into a slice.
 // Each entry is trimmed of whitespace. Empty entries are ignored.
 //

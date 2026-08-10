@@ -8,6 +8,8 @@ services:
     ports:
       - "8443:8443/tcp"
       - "8443:8443/udp"
+      - "8444:8444/tcp"
+      - "9090:9090/tcp"
     environment:
       - GOMAXPROCS=2
     read_only: true

@@ -121,4 +121,3 @@ func TestProtocolVersionCheck(t *testing.T) {
 		t.Errorf("got version %d, want 3", decodedFut.Version)
 	}
 }
-
