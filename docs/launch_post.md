@@ -21,7 +21,7 @@ Existing secret-sharing tools often rely on centralized web services that store 
 ZeroFeed adheres strictly to 6 core engineering principles:
 
 1. **Post-Quantum Hybrid E2EE (NIST FIPS 203 ML-KEM-768 + X25519 PAKE)**:
-   Key exchange combines Post-Quantum Kyber/ML-KEM-768 lattice cryptography with classical X25519 PAKE (aligned with **ACN Italia July 2024 PQC Guidance**, **NIST FIPS 203**, and **ETSI TS 103 744**). Protects against "Store Now, Decrypt Later" quantum attacks.
+   Key exchange combines Post-Quantum Kyber/ML-KEM-768 lattice cryptography (`golang.org/x/crypto/mlkem` by Google's Go Crypto Team) with classical X25519 PAKE via a Dual-Input HKDF Key Combiner (aligned with **ACN Italia July 2024 PQC Guidance**, **NIST FIPS 203**, and **ETSI TS 103 744**). Protects against "Store Now, Decrypt Later" quantum attacks.
 
 2. **Stateless Rendezvous & Client-Generated Invites**:
    Intermediate relays maintain **zero persistent state**, **zero databases**, and **zero payload logs**. Invites (`zerofeed invite [code]`) generate 100% client-side terminal ASCII banners, `zerofeed://` native URIs, and Web `#join=` URL hash fragments for instant browser decryption.
@@ -77,27 +77,28 @@ docker run -d --name zerofeed-relay -p 8443:8443/tcp -p 8443:8443/udp -p 8444:84
 
 ---
 
-### ⚖️ Threat Model & Known Limitations
+### ⚖️ Threat Model & Cryptographic Boundaries
 
 To maintain absolute transparency with security researchers:
 
+- **Standardized PQC Math**: ZeroFeed does not implement custom lattice math; it uses `golang.org/x/crypto/mlkem` maintained by Google's Go Crypto Team.
+- **Dual-Input HKDF Combiner**: Hybrid key exchange combines X25519 PAKE ($S_{\text{pake}}$) and ML-KEM-768 ($S_{\text{kem}}$) via $\text{HKDF-SHA256}(S_{\text{pake}} \parallel S_{\text{kem}})$, modelled after Signal PQXDH.
 - **Zero-Knowledge Relay (ZKR) Architecture**: ZeroFeed uses a Zero-Knowledge Relay Architecture. The relay matches session IDs via Argon2id Blind HMAC tags without knowing passphrases, session keys, or payload contents. (ZeroFeed does not use ZK-SNARKs; "Zero-Knowledge" refers to intermediate relay blindness).
-- **IP Anonymity & Traffic Fingerprinting**: ZeroFeed guarantees payload confidentiality and authenticity. It does not hide IP addresses or traffic timing against global network adversaries. For full IP anonymity, run ZeroFeed over **Tor** (`torsocks zerofeed ...`) or **I2P**.
-- **PQC Wire Framing**: ML-KEM-768 wire frames (1216B / 1120B) are explicitly engineered under standard 1500-byte Ethernet MTUs to prevent IP-layer fragmentation.
-- **Native CLI vs Web WASM**: The native Go CLI is the primary target for maximum side-channel resistance (`mlockall` + `DisableCoreDumps`). Web WASM is provided as a zero-installation preview client.
+- **IP Anonymity & Traffic Analysis**: ZeroFeed guarantees payload confidentiality and authenticity. It does not hide IP addresses or traffic timing against global network adversaries. For full IP anonymity, run ZeroFeed over **Tor** (`torsocks zerofeed ...`) or **I2P**.
+- **Native CLI vs Web WASM Trust Boundary**: The native Go CLI is the primary target for maximum side-channel resistance (`mlockall` + `DisableCoreDumps`). Web WASM on GitHub Pages is provided as a convenience preview client.
 
 ---
 
 ### 🔍 Technical FAQ & Cryptographic Deep Dive
+
+**Q: Are you using custom PQC lattice math?**
+> **A:** No. ZeroFeed relies strictly on `golang.org/x/crypto/mlkem`, the FIPS 203 ML-KEM-768 implementation maintained directly by Google's Go Cryptography Team.
 
 **Q: How are low-entropy human codes protected against offline dictionary brute-force attacks by malicious relays?**
 > **A:** Before performing the hybrid X25519 PAKE + ML-KEM-768 key exchange, ZeroFeed passes human passphrases through **Argon2id** (`64 MB RAM, time=1, threads=1`). The relay only sees a 32-byte Blind HMAC match tag derived from Argon2id (`DeriveBlindMatchTag`). A malicious relay cannot test guessed passphrases offline without computing memory-hard Argon2id hashes for every candidate code.
 
 **Q: How do you prevent Go Garbage Collector & stack movement from leaking key material in RAM?**
 > **A:** On startup, ZeroFeed calls `crypto.LockMemory()` which executes `mlockall(MCL_CURRENT|MCL_FUTURE)` on Linux/macOS to lock process memory pages and disable swap paging. Additionally, core dumps are explicitly disabled via `setrlimit(RLIMIT_CORE, 0)` (`DisableCoreDumps()`), and all cryptographic buffers are zeroed using `crypto.ZeroBytes()` bound with `runtime.KeepAlive()` to block compiler optimization passes.
-
-**Q: How does the Web client authenticate TLS and prevent Mixed-Content blocks?**
-> **A:** ZeroFeed supports both DNS indirection (`--relay relay.zerofeed.app`) and Subject Public Key Info (SPKI) certificate pinning (`CalculateSPKIFingerprint`). The CLI and WASM engines compute and match the SHA-256 digest of the server's public key info, securing connection integrity even when connecting directly to IP endpoints or self-hosted relays.
 
 ---
 

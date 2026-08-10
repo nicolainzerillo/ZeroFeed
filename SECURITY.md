@@ -1,40 +1,40 @@
-# Security Policy, Threat Model & Known Limitations
+# Security Policy, Threat Model & Cryptographic Specifications
 
 ZeroFeed prioritizes the security, confidentiality, and integrity of zero-knowledge, end-to-end encrypted transmissions. We appreciate the work of security researchers and open-source audit contributors.
 
 ---
 
-## 🛡️ Threat Model & Explicit Security Boundaries
+## 🛡️ Threat Model & Cryptographic Architecture
 
-To maintain complete transparency with security auditors, ZeroFeed explicitly defines its security boundaries and known operational trade-offs:
+To maintain complete transparency with security auditors, ZeroFeed explicitly defines its cryptographic primitives, security boundaries, and operational trade-offs:
 
-### 1. "Zero-Knowledge Relay" (ZKR) Architecture
-- **Scope**: ZeroFeed uses a **Zero-Knowledge Relay (ZKR) Architecture**. The relay server operates 100% in volatile RAM with zero disk persistence, zero databases, and zero payload logging.
-- **Relay Knowledge**: Relays match publisher and subscriber sessions via 32-byte Argon2id Blind HMAC tags (`DeriveBlindMatchTag`). Relays **never** possess passphrases, master keys, session keys, or unencrypted payload contents.
-- **ZK-Proof Clarification**: ZeroFeed does not use Zero-Knowledge Proofs (zk-SNARKs/zk-STARKs); the term "Zero-Knowledge" refers to the Zero-Knowledge Relay boundary (untrusted intermediate nodes learn zero data about payload contents).
+### 1. Standardized PQC Primitives (`golang.org/x/crypto/mlkem`)
+- **No Custom Lattice Math**: ZeroFeed **does not** implement custom lattice sampling or un-audited PQC math.
+- **Official Implementation**: Post-Quantum ML-KEM-768 lattice key encapsulation relies strictly on **`golang.org/x/crypto/mlkem`**, maintained directly by Google's Go Cryptography Team (FIPS 203 compliant).
 
-### 2. Network Metadata & IP Anonymity
+### 2. Dual-Input Hybrid Key Combiner (Signal PQXDH Style)
+- **Composition Model**: Key exchange combines classical X25519 PAKE with ML-KEM-768 lattice key encapsulation using a **Dual-Input HKDF Key Combiner**:
+  $$\text{PRK} = \text{HKDF-Extract}(\text{salt}, S_{\text{pake}} \parallel S_{\text{kem}})$$
+  $$K_{\text{session}} = \text{HKDF-Expand}(\text{PRK}, \text{"zerofeed-v3-hybrid-pqc-aead"}, 32)$$
+- **Security Guarantee**: Because both $S_{\text{pake}}$ and $S_{\text{kem}}$ are combined into HKDF-SHA256, if *either* X25519 PAKE *or* ML-KEM-768 remains secure, the resulting session key $K_{\text{session}}$ is computationally indistinguishable from random.
+
+### 3. "Zero-Knowledge Relay" (ZKR) Architecture
+- **Relay Blindness**: Relays operate 100% in volatile RAM with zero disk persistence, zero databases, and zero payload logging. Relays match sessions via 32-byte Argon2id Blind HMAC tags (`DeriveBlindMatchTag`).
+- **Relay Knowledge**: Relays **never** possess passphrases, master keys, session keys, or unencrypted payload contents.
+- **ZK Terminology**: "Zero-Knowledge" refers to intermediate relay blindness (ZKR); ZeroFeed does not use zk-SNARKs or zk-STARKs.
+
+### 4. Trust Boundaries: Native CLI vs Web WASM
+- **Native CLI (Gold Standard)**: Recommended for high-security threat models. Includes OS memory locking (`mlockall`), core dump disabling (`RLIMIT_CORE = 0`), and constant-time operations (`subtle.ConstantTimeCompare`).
+- **Web WASM Client (Preview/Demo)**: Provided as a zero-installation convenience client. Browser WASM execution relies on Web PKI and CDN integrity (GitHub Pages); for hostile threat environments, users should execute locally compiled binaries verified via `SHA256SUMS`.
+
+### 5. Network Metadata & Tor Anonymity
 - **Boundary**: ZeroFeed guarantees **payload confidentiality and authenticity** against network eavesdroppers and untrusted relay operators.
-- **Traffic Analysis**: E2EE does not mask network-level metadata (IP addresses of publisher/subscriber, packet throughput timing, or block sizes) against global network adversaries.
-- **Recommended Anonymity Layer**: For complete IP anonymity and connection unlinkability, users should run the ZeroFeed CLI over **Tor** (`torsocks zerofeed ...`) or **I2P**.
+- **Traffic Analysis**: E2EE does not hide network IP addresses or traffic timing against global adversaries. For complete IP anonymity, users should run ZeroFeed over **Tor** (`torsocks zerofeed ...`) or **I2P**.
 
-### 3. Post-Quantum Hybrid Handshake MTU Overhead
-- **Framing**: NIST FIPS 203 ML-KEM-768 wire frames require ~1216 bytes for `MsgTypePAKEInitSub` and ~1120 bytes for `MsgTypePAKEInitPub`.
-- **MTU Safety**: Wire messages are explicitly engineered to fit under standard 1500-byte Ethernet MTUs, preventing IP-level fragmentation across standard networks.
-- **Transport Reliability**: Over TCP and QUIC, transport stream framing handles loss recovery automatically.
-
-### 4. Side-Channel Protections: Native CLI vs Web WASM
-- **Native CLI**: Uses OS-level memory locking (`mlockall`), core dump disabling (`RLIMIT_CORE = 0`), and native Go constant-time operations (`subtle.ConstantTimeCompare`) for maximum side-channel resistance.
-- **Web WASM Client**: WebAssembly execution inside browser JIT compilers (V8/SpiderMonkey) is provided as a zero-installation convenience preview. For high-security environments, the native Go CLI is recommended.
-
-### 5. Relay DoS & Resource Saturation Defense
-- **IP Rate Limiting**: Abuse detection bans IPs after 3 failed PAKE attempts or malformed frame injections (`pkg/relay/ratelimit.go`).
-- **Watermark Backpressure**: High Watermark (80%) and Low Watermark (40%) flow control pauses publisher ingestion if a subscriber reads slowly, preventing unbounded RAM accumulation.
-- **Bounded Bumper Queues**: Bounded subscriber queues (`SubscriberQueueSize = 200`) enforce strict RAM ceilings on relay nodes.
-
-### 6. In-Stream Key Rekeying & Stream Order Guarantee
-- **PFS Rekeying**: In-stream key ratcheting (`MsgTypeRekey`) occurs every 1 GB or 1 hour, immediately zeroizing parent keys in RAM.
-- **Ordered Delivery**: Over TCP and QUIC stream transports, frame sequence numbers (`seqNum uint64`) are strictly ordered, preventing out-of-order rekeying decryption failures.
+### 6. Relay DoS Defense & PoW Roadmap
+- **Relay Rate Limiting**: Abuse detection bans IPs after 3 failed PAKE attempts or malformed frame injections (`pkg/relay/ratelimit.go`).
+- **Backpressure Flow Control**: High Watermark (80%) and Low Watermark (40%) flow control pauses publisher ingestion if a subscriber reads slowly, preventing unbounded RAM accumulation.
+- **Proof-of-Work Roadmap**: Public relays are courtesy ephemeral rendezvous nodes. Natively integrated Hashcash Proof-of-Work (PoW) channel reservation is planned for v1.4.
 
 ---
 
