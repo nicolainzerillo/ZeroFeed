@@ -144,6 +144,17 @@ go test -v -race ./...
 
 ---
 
+## 🤖 Development Philosophy & AI Assistance
+
+ZeroFeed was architected and built using modern AI pair-programming tools (Google Antigravity SDK) as interactive coding partners. 
+
+Following pragmatic open-source engineering principles:
+- **Human Architecture**: All cryptographic protocol boundaries, memory locking logic, and stateless relay designs were architected and directed by the human maintainer.
+- **AI Acceleration**: AI tools were utilized to accelerate unit test writing, cross-platform build scripts, and edge-case code verification.
+- **100% Manual Audit & Verification**: Every line of code has been audited, formatted with `gofmt`, checked via `go vet`, and verified for zero data-races (`go test -race`).
+
+---
+
 ## ⚖️ Dual License Structure
 
 - **Client CLI, Package SDK & Engine** (`main.go`, `pkg/crypto`, `pkg/feed`, `pkg/protocol`, WASM): Distributed under the **Apache License 2.0** for zero-friction integration.
