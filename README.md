@@ -19,10 +19,6 @@ Built with **Zero-Knowledge Ephemeral Transit** at its core: no payload data is 
 Experience zero-install, client-side E2EE WebAssembly decryption directly in your browser:
 👉 **[Launch Interactive WebAssembly Subscriber](https://nicolainzerillo.github.io/ZeroFeed-Landing/)**
 
-![ZeroFeed Live E2EE WebAssembly Stream Demo](docs/media/demo.png)
-
-*Figure 1: Live real-time E2EE stream broadcast from CLI Publisher terminal to WebAssembly browser subscriber with matching SAS Verification Badges.*
-
 ---
 
 ## 🌟 Key Architectural Features
