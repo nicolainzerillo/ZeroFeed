@@ -239,6 +239,6 @@ func main() {
 	js.Global().Set("zeroFeedRatchetKey", js.FuncOf(ratchetKey))
 	js.Global().Set("zeroFeedWipe", js.FuncOf(wipeAll))
 
-	println("ZeroFeed WebAssembly (WASM) Engine v2.0.0 Initialized")
+	println("ZeroFeed WebAssembly (WASM) Engine v1.3.0 Initialized")
 	<-c
 }

@@ -441,6 +441,8 @@ func runRelay(args []string) {
 	fs.IntVar(port, "p", 8443, "Relay listening TCP/UDP port (shorthand)")
 	quicMode := fs.Bool("quic", false, "Enable QUIC UDP listener alongside TCP")
 	wsPort := fs.Int("ws-port", 8444, "WebSocket HTTP listening port for browser WASM subscribers")
+	wsCert := fs.String("ws-cert", "", "Optional TLS certificate file path for WSS (WebSocket Secure)")
+	wsKey := fs.String("ws-key", "", "Optional TLS private key file path for WSS (WebSocket Secure)")
 	noRateLimit := fs.Bool("no-rate-limit", false, "Disable IP rate limiting (recommended when deployed behind reverse proxies like Fly.io)")
 	trustProxy := fs.Bool("trust-proxy", false, "Enable PROXY Protocol v2 header parsing for trusted reverse proxies (e.g. HAProxy, AWS NLB)")
 	metricsPort := fs.Int("metrics-port", 0, "Optional HTTP port for zero-knowledge Prometheus metrics exporter (e.g. 9090)")
@@ -473,7 +475,7 @@ func runRelay(args []string) {
 	}
 
 	if *wsPort > 0 {
-		_ = srv.StartWebSocketServer(ctx, fmt.Sprintf("0.0.0.0:%d", *wsPort))
+		_ = srv.StartWebSocketTLSServer(ctx, fmt.Sprintf("0.0.0.0:%d", *wsPort), *wsCert, *wsKey)
 	}
 
 	if *quicMode {

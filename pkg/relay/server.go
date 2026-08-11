@@ -79,8 +79,13 @@ func (srv *Server) StartMetricsServer(ctx context.Context, listenAddr string) er
 	return nil
 }
 
-// StartWebSocketServer launches a zero-dependency WebSocket HTTP listener bridging browser clients to the Relay session router.
+// StartWebSocketServer launches a zero-dependency WebSocket HTTP/HTTPS listener bridging browser clients to the Relay session router.
 func (srv *Server) StartWebSocketServer(ctx context.Context, listenAddr string) error {
+	return srv.StartWebSocketTLSServer(ctx, listenAddr, "", "")
+}
+
+// StartWebSocketTLSServer launches a WebSocket listener with optional TLS (WSS) bridging browser clients to the Relay.
+func (srv *Server) StartWebSocketTLSServer(ctx context.Context, listenAddr string, certFile, keyFile string) error {
 	if listenAddr == "" {
 		return nil
 	}
@@ -119,7 +124,11 @@ func (srv *Server) StartWebSocketServer(ctx context.Context, listenAddr string) 
 	}()
 
 	go func() {
-		_ = server.ListenAndServe()
+		if certFile != "" && keyFile != "" {
+			_ = server.ListenAndServeTLS(certFile, keyFile)
+		} else {
+			_ = server.ListenAndServe()
+		}
 	}()
 
 	return nil
@@ -241,7 +250,7 @@ func (srv *Server) handleConnection(conn net.Conn) {
 			closeEnv := &protocol.Envelope{
 				Version: protocol.Version,
 				MsgType: protocol.MsgTypeClose,
-				Payload: []byte(fmt.Sprintf("zerofeed/relay: unsupported protocol version (minimum required: 0x%02X)", protocol.MinSupportedVersion)),
+				Payload: fmt.Appendf(nil, "zerofeed/relay: unsupported protocol version (minimum required: 0x%02X)", protocol.MinSupportedVersion),
 			}
 			_ = protocol.Encode(conn, closeEnv)
 		} else if !errors.Is(err, io.EOF) {
@@ -298,14 +307,10 @@ func (srv *Server) handleConnection(conn net.Conn) {
 		}
 
 	default:
-		session.mu.RLock()
-		isPub := session.publisher != nil && session.publisher.netConn == conn
-		session.mu.RUnlock()
-
-		if isPub {
-			session.ForwardFromPublisher(env)
-			srv.loopPublisher(session, nil)
-		}
+		// Unregistered connection sending non-handshake frame — drop safely without touching active session loops.
+		_ = conn.Close()
+		srv.rateLimiter.RecordFailure(remoteAddr)
+		srv.metrics.MalformedPacketsDroppedTotal.Add(1)
 	}
 }
 

@@ -1,9 +1,9 @@
 # ZeroFeed Security & Cryptographic Specification Whitepaper
 
-> **Version**: 2.0.0  
+> **Version**: v1.3.0 (Wire Protocol Spec 0x02)  
 > **Audience**: Security Engineers, Cryptographers, and Security Auditors
 
-This whitepaper details the threat model, cryptographic primitives, memory management policies, and security guarantees enforced by **ZeroFeed v2.0**.
+This whitepaper details the threat model, cryptographic primitives, memory management policies, and security guarantees enforced by **ZeroFeed v1.3.0** (utilizing Wire Protocol v2 format).
 
 ---
 

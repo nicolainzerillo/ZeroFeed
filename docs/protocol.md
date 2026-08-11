@@ -1,6 +1,6 @@
 # ZeroFeed Wire Protocol Specification (v2.0)
 
-This document defines the binary frame envelope, cryptographic exchange, and frame sequence specification of the **ZeroFeed Wire Protocol (Version 2.0)**.
+This document defines the binary frame envelope, cryptographic exchange, and frame sequence specification of the **ZeroFeed Wire Protocol v2 (Header Version 0x02)** used in **ZeroFeed v1.3.0**.
 
 ---
 

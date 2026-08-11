@@ -86,21 +86,24 @@ func ProbeFirstAvailable(ctx context.Context, relays []string, dialTimeout time.
 	return addr, nil
 }
 
+// DefaultPublicRelayIP is the fallback static IP of the public relay node (Oracle Cloud Turin eu-turin-1).
+const DefaultPublicRelayIP = "92.4.216.150:8443"
+
 // ResolveDefaultRelays resolves DefaultRelayDNS to a list of relay addresses.
-// Falls back to an empty list (no relay) if DNS lookup fails.
-// This function does NOT block for long — it uses a 3-second timeout.
+// Automatically falls back to DefaultPublicRelayIP if DNS lookup is unavailable.
 func ResolveDefaultRelays() []string {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
 	addrs, err := (&net.Resolver{}).LookupHost(ctx, DefaultRelayDNS)
-	if err != nil || len(addrs) == 0 {
-		return nil
+	if err == nil && len(addrs) > 0 {
+		relays := make([]string, 0, len(addrs)+1)
+		for _, addr := range addrs {
+			relays = append(relays, net.JoinHostPort(addr, DefaultRelayPort))
+		}
+		relays = append(relays, DefaultPublicRelayIP)
+		return relays
 	}
 
-	relays := make([]string, 0, len(addrs))
-	for _, addr := range addrs {
-		relays = append(relays, net.JoinHostPort(addr, DefaultRelayPort))
-	}
-	return relays
+	return []string{DefaultPublicRelayIP}
 }

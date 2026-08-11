@@ -8,7 +8,7 @@ echo "========================================="
 OUTPUT_DIR="./bin/release"
 mkdir -p "${OUTPUT_DIR}"
 
-VERSION="v2.0.0"
+VERSION="v1.3.0"
 GIT_COMMIT=$(git rev-parse --short HEAD 2>/dev/null || echo "release")
 BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 

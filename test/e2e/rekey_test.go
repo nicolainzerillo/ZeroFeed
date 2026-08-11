@@ -100,7 +100,7 @@ func TestInStreamKeyRatchetPFS(t *testing.T) {
 
 	// Send 5 messages (each 50 bytes = 250 bytes > 100 byte threshold), triggering multiple key ratchets
 	for i := 1; i <= 5; i++ {
-		payload := []byte(fmt.Sprintf("%d: Continuous E2EE Stream Payload Data Chunk #%d", i, i))
+		payload := fmt.Appendf(nil, "%d: Continuous E2EE Stream Payload Data Chunk #%d", i, i)
 		if err := pub.PublishPayload(ctx, payload); err != nil {
 			t.Fatalf("PublishPayload error on msg %d: %v", i, err)
 		}

@@ -7,7 +7,6 @@ import (
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/binary"
 	"fmt"
 	"net"
 	"os"
@@ -25,18 +24,13 @@ func DeriveBlindMatchTag(passphrase []byte) [32]byte {
 	return crypto.DeriveBlindMatchTag(argon2Key)
 }
 
-// DeriveSessionID derives an anonymized 16-byte zero-knowledge session identifier from passphrase using Argon2id and 15-minute epoch windowing.
+// DeriveSessionID derives an anonymized 16-byte zero-knowledge session identifier from passphrase using Argon2id.
 func DeriveSessionID(passphrase []byte) [protocol.SessionIDSize]byte {
-	epoch := time.Now().Unix() / 900 // 15-minute epoch window
-	var epochBytes [8]byte
-	binary.BigEndian.PutUint64(epochBytes[:], uint64(epoch))
-
 	argon2Key := crypto.DeriveMasterKeyArgon2(passphrase)
 	defer crypto.ZeroBytes(argon2Key)
 
 	h := hmac.New(sha256.New, argon2Key)
-	h.Write([]byte("zerofeed-relay-time-window-rendezvous-v3"))
-	h.Write(epochBytes[:])
+	h.Write([]byte("zerofeed-relay-channel-rendezvous-v3"))
 	tag := h.Sum(nil)
 
 	var sessionID [protocol.SessionIDSize]byte
@@ -73,7 +67,7 @@ func DialRelayWithPin(ctx context.Context, relayAddr string, expectedFingerprint
 		if envSNI := os.Getenv("ZEROFEED_TLS_SNI"); envSNI != "" {
 			serverName = envSNI
 		} else {
-			serverName = "zerofeed-relay.fly.dev"
+			serverName = "zerofeed.duckdns.org"
 		}
 	}
 

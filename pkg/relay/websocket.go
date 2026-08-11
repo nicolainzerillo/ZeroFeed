@@ -54,13 +54,14 @@ func (c *wsConn) Read(p []byte) (int, error) {
 		masked := (lenByte & 0x80) != 0
 		payloadLen := uint64(lenByte & 0x7F)
 
-		if payloadLen == 126 {
+		switch payloadLen {
+		case 126:
 			var l uint16
 			if err := binary.Read(c.reader, binary.BigEndian, &l); err != nil {
 				return 0, err
 			}
 			payloadLen = uint64(l)
-		} else if payloadLen == 127 {
+		case 127:
 			if err := binary.Read(c.reader, binary.BigEndian, &payloadLen); err != nil {
 				return 0, err
 			}
@@ -85,6 +86,21 @@ func (c *wsConn) Read(p []byte) (int, error) {
 			for i := 0; i < len(payload); i++ {
 				payload[i] ^= maskKey[i%4]
 			}
+		}
+
+		if opcode == 0x09 { // Ping frame — MUST respond with Pong (opcode 0x0A) per RFC 6455 Section 5.5.2
+			c.writeMu.Lock()
+			pongHeader := []byte{0x8A}
+			pLen := len(payload)
+			if pLen <= 125 {
+				pongHeader = append(pongHeader, byte(pLen))
+			} else {
+				pongHeader = append(pongHeader, 126, byte(pLen>>8), byte(pLen))
+			}
+			pongHeader = append(pongHeader, payload...)
+			_, _ = c.Conn.Write(pongHeader)
+			c.writeMu.Unlock()
+			continue
 		}
 
 		if opcode == 0x01 || opcode == 0x02 || opcode == 0x00 { // Text or Binary or Continuation

@@ -68,3 +68,22 @@ ZeroFeed strictly enforces in-RAM ephemerality:
 1. **`crypto.ZeroBytes(b []byte)`**: Overwrites slice contents with `0x00` and passes `b` to `runtime.KeepAlive(b)` to prevent compiler optimization from stripping zeroing loops.
 2. **RAM Circular Replay Buffer (`pkg/feed/ringbuffer.go`)**: Holds up to 100 sequence-numbered unencrypted frames in RAM for reconnect sync.
 3. **Session Teardown**: Calling `Close()` or reaching session TTL immediately triggers `ringbuffer.Wipe()`, zeros symmetric cipher keys, closes TCP sockets, and purges all pointers.
+
+---
+
+## 🏷️ Versioning Architecture & Gopls Configuration
+
+### Dual-Version Scheme
+ZeroFeed maintains a clear separation between product release versions and wire protocol frame versions:
+- **Software Release Version (`v1.3.0`)**: Injected into `pkg/version.Version` at build time. Governs CLI releases, WASM initialization logs, build scripts (`scripts/build_release.sh`), and landing page badges.
+- **Wire Protocol Version (`0x02` / Protocol v2)**: Hardcoded in `pkg/protocol.Version` (`0x02`). Governs the 38-byte binary frame header (`ZFED`), HKDF domain separation strings (`zerofeed-v2-hkdf-aead`), and frame serialization specs.
+
+### Gopls Build Tags Configuration
+To support QUIC implementation files with `//go:build quic` in IDEs without missing package diagnostics, `.vscode/settings.json` is configured with:
+```json
+{
+  "gopls": { "buildFlags": ["-tags=quic"] },
+  "go.buildFlags": ["-tags=quic"],
+  "go.testFlags": ["-tags=quic"]
+}
+```
