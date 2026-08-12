@@ -396,6 +396,10 @@ func (s *SubscriberEngine) SubscribeStream(ctx context.Context, outputWriter io.
 			return fmt.Errorf("zerofeed/feed: AEAD frame authentication failed (session terminated): %w", err)
 		}
 
+		if unpadded, uErr := protocol.UnpadPayload(plaintext); uErr == nil {
+			plaintext = unpadded
+		}
+
 		// Sequence deduplication
 		s.mu.Lock()
 		if seqNum <= s.lastSeqNum {

@@ -7,7 +7,7 @@ import (
 
 var (
 	// Version holds the current release version of ZeroFeed (injected at build time).
-	Version = "v1.3.0"
+	Version = "v1.4.0"
 	// GitCommit holds the git commit SHA (injected at build time).
 	GitCommit = "dev"
 	// BuildDate holds the build timestamp (injected at build time).

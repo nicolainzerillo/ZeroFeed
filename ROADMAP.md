@@ -1,6 +1,6 @@
 # ZeroFeed — Roadmap
 
-> **Current stable release**: v1.3  
+> **Current stable release**: v1.4  
 > **Repository**: [github.com/zerofeed/zerofeed](https://github.com/zerofeed/zerofeed)
 
 ZeroFeed is a zero-knowledge, end-to-end encrypted pub/sub CLI and Go engine.  
@@ -8,7 +8,25 @@ This roadmap is public and honest: items listed here are concrete engineering go
 
 ---
 
-## ✅ v1.3 — Current Release
+## ✅ v1.4 — Current Release
+
+> Focus: **Observability**, **Relay Containerization**, and **Multi-Arch Release Pipelines**
+
+- [x] **Structured JSON logging mode** (`--log-format json`)  
+  Zero-dependency machine-readable log output on `stderr` built with Go stdlib `log/slog` for CI/CD pipelines and log aggregators (Loki, Datadog) without leaking payload content or cryptographic key material.  
+  _Implemented in_: `pkg/logger/logger.go`, `main.go`
+
+- [x] **Production Dockerization for Relay Node**  
+  Multi-stage static non-root Alpine container (`Dockerfile` & `docker-compose.yml`) with automated healthchecks on `/metrics` endpoint (~12 MB).  
+  _Implemented in_: `Dockerfile`, `docker-compose.yml`
+
+- [x] **Automated CI/CD Release Pipelines & Multi-arch Container Registry**  
+  GitHub Actions matrix (`release.yml` & `ci.yml`) generating static binaries for `darwin/arm64`, `darwin/amd64`, `linux/amd64`, `linux/arm64`, `windows/amd64`, `android/arm64` and pushing multi-arch Docker images to `ghcr.io`.  
+  _Implemented in_: `.github/workflows/release.yml`, `scripts/build_release.sh`
+
+---
+
+## ✅ v1.3 — Previous Release
 
 > Focus: **Relay resilience**, **Stateless Invites**, and **Enterprise Unit Test Suite**
 

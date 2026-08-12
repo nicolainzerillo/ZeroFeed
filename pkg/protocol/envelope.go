@@ -93,17 +93,8 @@ func Decode(r io.Reader) (*Envelope, error) {
 	var payload []byte
 	if payloadLen > 0 {
 		payload = make([]byte, payloadLen)
-		var readBytes uint32
-		for readBytes < payloadLen {
-			chunkSize := uint32(64 * 1024)
-			if payloadLen-readBytes < chunkSize {
-				chunkSize = payloadLen - readBytes
-			}
-			n, err := io.ReadFull(r, payload[readBytes:readBytes+chunkSize])
-			readBytes += uint32(n)
-			if err != nil {
-				return nil, fmt.Errorf("zerofeed/protocol: failed to read frame payload (%d/%d bytes): %w", readBytes, payloadLen, err)
-			}
+		if _, err := io.ReadFull(r, payload); err != nil {
+			return nil, fmt.Errorf("zerofeed/protocol: failed to read frame payload (%d bytes): %w", payloadLen, err)
 		}
 	}
 
@@ -114,4 +105,35 @@ func Decode(r io.Reader) (*Envelope, error) {
 		Nonce:     nonce,
 		Payload:   payload,
 	}, nil
+}
+
+var ErrInvalidPadding = errors.New("zerofeed/protocol: invalid frame payload padding")
+
+const DefaultPaddingTargetSize = 1280 // IPv6 Min MTU size for uniform traffic padding
+
+// PadPayload prepends a 2-byte big-endian uint16 real length and pads data up to targetSize with zeros.
+func PadPayload(data []byte, targetSize int) []byte {
+	realLen := len(data)
+	needed := realLen + 2
+	if needed > targetSize {
+		targetSize = needed
+	}
+	out := make([]byte, targetSize)
+	binary.BigEndian.PutUint16(out[0:2], uint16(realLen))
+	if realLen > 0 {
+		copy(out[2:], data)
+	}
+	return out
+}
+
+// UnpadPayload extracts the real payload from a padded data buffer using its 2-byte big-endian uint16 header.
+func UnpadPayload(data []byte) ([]byte, error) {
+	if len(data) < 2 {
+		return nil, ErrInvalidPadding
+	}
+	realLen := int(binary.BigEndian.Uint16(data[0:2]))
+	if realLen+2 > len(data) {
+		return nil, ErrInvalidPadding
+	}
+	return data[2 : 2+realLen], nil
 }

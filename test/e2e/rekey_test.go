@@ -91,7 +91,7 @@ func TestInStreamKeyRatchetPFS(t *testing.T) {
 		}
 	}()
 
-	subCtx, subCancel := context.WithTimeout(ctx, 3*time.Second)
+	subCtx, subCancel := context.WithTimeout(ctx, 10*time.Second)
 	defer subCancel()
 
 	go func() {

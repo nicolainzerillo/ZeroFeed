@@ -56,8 +56,22 @@ $$\text{SAS Emoji} = \text{EmojiMap}(\text{SASHash}[2]) \parallel \text{EmojiMap
 
 Both Publisher and Subscriber display the SAS badge upon handshake completion (`🛡️⚡ [8F3A]`). Users out-of-band compare these 4 characters / 2 emojis to confirm zero active middleman interception.
 
+### D. 1-to-N Fanout Pub/Sub vs. PAKE Mutual Authentication Architecture
 
----
+ZeroFeed balances zero-knowledge mutual authentication with 1-to-N broadcast fanout streaming:
+
+1. **PAKE Mutual Authentication (1-to-1 ZK-PAKE)**:
+   During session setup, `PAKEPeer` (X25519 + ML-KEM-768 hybrid key agreement with Argon2id wire blinding) executes mutual zero-knowledge authentication. If a client provides an invalid passphrase or tampers with handshake payloads, `pakePeer.Update(...)` rejects the peer and terminates the connection before any stream data is processed.
+
+2. **1-to-N Broadcast Stream Key Derivation**:
+   In a zero-knowledge relay Pub/Sub system, the Publisher encrypts payload frames once, and the Relay fans out identical ciphertext frames to $N$ subscribers.
+   To allow all authorized subscribers to decrypt the broadcast stream simultaneously and support asynchronous reconnects, the stream AEAD key is derived deterministically via `crypto.DeriveKey(passphrase, sessionID)`.
+
+3. **Memory-Hard Passphrase Protection (Argon2id)**:
+   `crypto.DeriveKey` derives the master key using **Argon2id** (`64MB` memory, 1 pass, 1 thread), binding it with `SessionID` salt via HKDF-SHA256. This provides GPU/ASIC brute-force resistance against offline dictionary attacks on captured ciphertexts.
+
+4. **In-Stream Forward Secrecy**:
+   While initial session keys are passphrase-derived to enable multi-subscriber fanout, active streams implement in-stream key ratcheting (`--rekey-bytes` / `--rekey-time`), providing forward secrecy for long-running broadcasts.
 
 ## 4. Zero-Knowledge Scope & Metadata Limits
 

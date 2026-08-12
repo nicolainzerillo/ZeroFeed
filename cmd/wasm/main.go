@@ -9,6 +9,7 @@ import (
 
 	"github.com/zerofeed/zerofeed/pkg/crypto"
 	"github.com/zerofeed/zerofeed/pkg/feed"
+	"github.com/zerofeed/zerofeed/pkg/protocol"
 )
 
 var (
@@ -115,6 +116,10 @@ func decryptPayload(this js.Value, args []js.Value) interface{} {
 	plaintext, err := cipher.Decrypt(ciphertext, nonce, aad)
 	if err != nil {
 		return map[string]interface{}{"error": err.Error()}
+	}
+
+	if unpadded, uErr := protocol.UnpadPayload(plaintext); uErr == nil {
+		plaintext = unpadded
 	}
 
 	return hex.EncodeToString(plaintext)

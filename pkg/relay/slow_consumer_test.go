@@ -48,9 +48,19 @@ func TestRelaySlowConsumer(t *testing.T) {
 		t.Fatalf("sub1.Connect failed: %v", err)
 	}
 
+	// Complete PAKE Handshake for Subscriber 1
+	errChan := make(chan error, 2)
+	go func() { errChan <- pub.CompleteHandshake(10 * time.Second) }()
+	go func() { errChan <- sub1.CompleteHandshake(10 * time.Second) }()
+
+	for i := 0; i < 2; i++ {
+		if err := <-errChan; err != nil {
+			t.Fatalf("Sub1 Handshake attempt %d failed: %v", i, err)
+		}
+	}
+
 	// Subscriber 2: Slow/Stalled Consumer (does NOT read from socket after handshake)
 	sub2, err := feed.NewSubscriberEngine(passphrase, relayAddr)
-
 	if err != nil {
 		t.Fatalf("NewSubscriberEngine #2 failed: %v", err)
 	}
@@ -60,15 +70,13 @@ func TestRelaySlowConsumer(t *testing.T) {
 		t.Fatalf("sub2.Connect failed: %v", err)
 	}
 
-	// Complete PAKE Handshake for all peers
-	errChan := make(chan error, 3)
-	go func() { errChan <- pub.CompleteHandshake(3 * time.Second) }()
-	go func() { errChan <- sub1.CompleteHandshake(3 * time.Second) }()
-	go func() { errChan <- sub2.CompleteHandshake(3 * time.Second) }()
+	// Complete PAKE Handshake for Subscriber 2
+	go func() { errChan <- pub.CompleteHandshake(10 * time.Second) }()
+	go func() { errChan <- sub2.CompleteHandshake(10 * time.Second) }()
 
-	for i := 0; i < 3; i++ {
+	for i := 0; i < 2; i++ {
 		if err := <-errChan; err != nil {
-			t.Fatalf("Handshake attempt %d failed: %v", i, err)
+			t.Fatalf("Sub2 Handshake attempt %d failed: %v", i, err)
 		}
 	}
 

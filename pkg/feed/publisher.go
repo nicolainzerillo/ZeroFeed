@@ -351,7 +351,8 @@ func (p *PublisherEngine) handleSyncRequests(ctx context.Context) {
 			env, err := protocol.Decode(conn)
 			_ = conn.SetReadDeadline(time.Time{})
 			if err != nil {
-				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				var netErr net.Error
+				if (errors.As(err, &netErr) && netErr.Timeout()) || errors.Is(err, os.ErrDeadlineExceeded) {
 					continue
 				}
 				return
@@ -422,11 +423,16 @@ func (p *PublisherEngine) replaySyncForSubscriber(lastSeqNum uint64) {
 	for _, item := range items {
 		nonce := crypto.ConstructNonceRFC5116(sessionSalt, item.SeqNum)
 
-		framePayloadLen := uint32(8 + len(item.Payload) + 16)
+		payloadToEncrypt := item.Payload
+		if len(item.Payload) > 0 && (item.Payload[0] == protocol.TagText || item.Payload[0] == protocol.TagFileStart || item.Payload[0] == protocol.TagFileEnd) {
+			payloadToEncrypt = protocol.PadPayload(item.Payload, protocol.DefaultPaddingTargetSize)
+		}
+
+		framePayloadLen := uint32(8 + len(payloadToEncrypt) + 16)
 		headerBytes := make([]byte, protocol.HeaderSize)
 		protocol.SerializeHeader(headerBytes, protocol.Version, protocol.MsgTypeDataStream, p.sessionID, nonce, framePayloadLen)
 
-		ciphertext, _, err := ciph.Encrypt(item.Payload, nonce[:], headerBytes)
+		ciphertext, _, err := ciph.Encrypt(payloadToEncrypt, nonce[:], headerBytes)
 		if err != nil {
 			continue
 		}
@@ -698,11 +704,16 @@ func (p *PublisherEngine) PublishPayload(ctx context.Context, payload []byte) er
 	copy(sessionSalt[:], p.sessionID[:4])
 	nonce := crypto.ConstructNonceRFC5116(sessionSalt, seqNum)
 
-	framePayloadLen := uint32(8 + len(payload) + 16)
+	payloadToEncrypt := payload
+	if len(payload) > 0 && (payload[0] == protocol.TagText || payload[0] == protocol.TagFileStart || payload[0] == protocol.TagFileEnd) {
+		payloadToEncrypt = protocol.PadPayload(payload, protocol.DefaultPaddingTargetSize)
+	}
+
+	framePayloadLen := uint32(8 + len(payloadToEncrypt) + 16)
 	headerBytes := make([]byte, protocol.HeaderSize)
 	protocol.SerializeHeader(headerBytes, protocol.Version, protocol.MsgTypeDataStream, p.sessionID, nonce, framePayloadLen)
 
-	ciphertext, _, err := ciph.Encrypt(payload, nonce[:], headerBytes)
+	ciphertext, _, err := ciph.Encrypt(payloadToEncrypt, nonce[:], headerBytes)
 	if err != nil {
 		return fmt.Errorf("zerofeed/feed: failed to encrypt payload: %w", err)
 	}

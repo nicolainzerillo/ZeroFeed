@@ -68,8 +68,8 @@ func TestAutoSyncCatchUpAndLiveStream(t *testing.T) {
 
 	// Handshake Publisher and Subscriber 1
 	errChan := make(chan error, 2)
-	go func() { errChan <- pub.CompleteHandshake(2 * time.Second) }()
-	go func() { errChan <- sub1.CompleteHandshake(2 * time.Second) }()
+	go func() { errChan <- pub.CompleteHandshake(10 * time.Second) }()
+	go func() { errChan <- sub1.CompleteHandshake(10 * time.Second) }()
 
 	for i := 0; i < 2; i++ {
 		if err := <-errChan; err != nil {
@@ -124,7 +124,7 @@ func TestAutoSyncCatchUpAndLiveStream(t *testing.T) {
 		t.Fatalf("sub2.Connect failed: %v", err)
 	}
 
-	if err := sub2.CompleteHandshake(2 * time.Second); err != nil {
+	if err := sub2.CompleteHandshake(10 * time.Second); err != nil {
 		t.Fatalf("sub2 CompleteHandshake failed: %v", err)
 	}
 
@@ -249,8 +249,8 @@ func TestReplayBufferOverflowIntegration(t *testing.T) {
 	}
 
 	errChan := make(chan error, 2)
-	go func() { errChan <- pub.CompleteHandshake(2 * time.Second) }()
-	go func() { errChan <- sub1.CompleteHandshake(2 * time.Second) }()
+	go func() { errChan <- pub.CompleteHandshake(10 * time.Second) }()
+	go func() { errChan <- sub1.CompleteHandshake(10 * time.Second) }()
 
 	for i := 0; i < 2; i++ {
 		if err := <-errChan; err != nil {

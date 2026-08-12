@@ -100,8 +100,46 @@ func TestProtocolVersionCheck(t *testing.T) {
 		t.Fatalf("Decode v0x02 failed: %v", err)
 	}
 	if decodedCurr.Version != 0x02 {
-		t.Errorf("got version %d, want 2", decodedCurr.Version)
+		t.Fatalf("expected version 0x02, got 0x%02X", decodedCurr.Version)
 	}
+}
+
+func TestPayloadPadding(t *testing.T) {
+	data := []byte("Hello ZeroFeed Uniform Padding")
+	targetSize := 1280
+
+	padded := protocol.PadPayload(data, targetSize)
+	if len(padded) != targetSize {
+		t.Fatalf("expected padded length %d, got %d", targetSize, len(padded))
+	}
+
+	unpadded, err := protocol.UnpadPayload(padded)
+	if err != nil {
+		t.Fatalf("UnpadPayload failed: %v", err)
+	}
+
+	if !bytes.Equal(unpadded, data) {
+		t.Fatalf("unpadded data mismatch: got %q, want %q", string(unpadded), string(data))
+	}
+
+	// Test invalid padding
+	_, err = protocol.UnpadPayload([]byte{0x01})
+	if err != protocol.ErrInvalidPadding {
+		t.Fatalf("expected ErrInvalidPadding for short data, got %v", err)
+	}
+
+	// Test corrupt length header exceeding buffer
+	corrupt := []byte{0xFF, 0xFF, 0x00, 0x00}
+	_, err = protocol.UnpadPayload(corrupt)
+	if err != protocol.ErrInvalidPadding {
+		t.Fatalf("expected ErrInvalidPadding for corrupt length header, got %v", err)
+	}
+}
+
+func TestProtocolVersionFuture(t *testing.T) {
+	var sessionID [protocol.SessionIDSize]byte
+	var nonce [protocol.NonceSize]byte
+	buf := new(bytes.Buffer)
 
 	// 3. Version 0x03 (future version >= MinSupportedVersion) -> expect success (forward compatible)
 	futEnv := &protocol.Envelope{

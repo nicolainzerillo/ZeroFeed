@@ -21,6 +21,7 @@ import (
 
 	"github.com/zerofeed/zerofeed/pkg/crypto"
 	"github.com/zerofeed/zerofeed/pkg/feed"
+	"github.com/zerofeed/zerofeed/pkg/logger"
 	"github.com/zerofeed/zerofeed/pkg/protocol"
 	"github.com/zerofeed/zerofeed/pkg/relay"
 	"github.com/zerofeed/zerofeed/pkg/transport"
@@ -49,11 +50,19 @@ func setupSignalContext() (context.Context, context.CancelFunc) {
 
 func main() {
 	initSecurity()
-	defer crypto.WipeAll()
 
+	err := runMain()
+	crypto.WipeAll()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
+
+func runMain() error {
 	if len(os.Args) < 2 {
 		printUsage()
-		os.Exit(1)
+		return errors.New("no subcommand specified")
 	}
 
 	subcommand := os.Args[1]
@@ -61,25 +70,27 @@ func main() {
 
 	switch subcommand {
 	case "publish", "pub":
-		runPublish(args)
+		return runPublish(args)
 	case "subscribe", "sub":
-		runSubscribe(args)
+		return runSubscribe(args)
 	case "invite":
-		runInvite(args)
+		return runInvite(args)
 	case "join":
-		runJoin(args)
+		return runJoin(args)
 	case "relay":
-		runRelay(args)
+		return runRelay(args)
 	case "gen", "generate":
 		runGen()
+		return nil
 	case "version", "-v", "--version":
 		fmt.Println(version.Info())
+		return nil
 	case "help", "-h", "--help":
 		printUsage()
+		return nil
 	default:
-		fmt.Fprintf(os.Stderr, "Unknown subcommand: %s\n\n", subcommand)
 		printUsage()
-		os.Exit(1)
+		return fmt.Errorf("unknown subcommand: %s", subcommand)
 	}
 }
 
@@ -124,7 +135,7 @@ func parseByteSize(s string) uint64 {
 // Priority: -r flag > --relay flag > ZEROFEED_RELAY env > DNS lookup of DefaultRelayDNS.
 // Supports comma-separated lists; probes each in order and returns first reachable address.
 // The probe opens and immediately closes a TCP connection — no leak.
-func resolveRelayAddr(r1, r2 string) string {
+func resolveRelayAddr(r1, r2 string) (string, error) {
 	raw := r2
 	if raw == "" {
 		raw = r1
@@ -138,9 +149,7 @@ func resolveRelayAddr(r1, r2 string) string {
 		// DNS fallback
 		list = feed.ResolveDefaultRelays()
 		if len(list) == 0 {
-			fmt.Fprintf(os.Stderr, "Error: no relay specified and DNS lookup of %s failed.\n", feed.DefaultRelayDNS)
-			fmt.Fprintf(os.Stderr, "Use --relay <address> or set ZEROFEED_RELAY.\n")
-			os.Exit(1)
+			return "", fmt.Errorf("no relay specified and DNS lookup of %s failed (use --relay <address> or set ZEROFEED_RELAY)", feed.DefaultRelayDNS)
 		}
 	} else {
 		list = feed.ParseRelayList(raw)
@@ -150,14 +159,13 @@ func resolveRelayAddr(r1, r2 string) string {
 	defer cancel()
 	addr, err := feed.ProbeFirstAvailable(ctx, list, 2*time.Second)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: relay unreachable: %v\n", err)
-		os.Exit(1)
+		return "", fmt.Errorf("relay unreachable: %w", err)
 	}
-	return addr
+	return addr, nil
 }
 
-func runPublish(args []string) {
-	fs := flag.NewFlagSet("publish", flag.ExitOnError)
+func runPublish(args []string) error {
+	fs := flag.NewFlagSet("publish", flag.ContinueOnError)
 	p1 := fs.String("passphrase", "", "Shared passphrase for E2EE PAKE session")
 	p2 := fs.String("p", "", "Shared passphrase (shorthand)")
 	p3 := fs.String("c", "", "Shared passphrase (alias)")
@@ -177,17 +185,30 @@ func runPublish(args []string) {
 	fingerprint := fs.String("fingerprint", "", "Expected SPKI SHA-256 TLS certificate fingerprint for strict pinning")
 	rekeyBytesStr := fs.String("rekey-bytes", "1G", "Payload byte threshold for in-stream key ratcheting (e.g. 500M, 1G, 0 to disable)")
 	rekeyTimeStr := fs.String("rekey-time", "1h", "Time threshold for in-stream key ratcheting (e.g. 30m, 1h, 0 to disable)")
+	logFormat := fs.String("log-format", "text", "Log format: 'text' (default) or 'json'")
+	logLevel := fs.String("log-level", "info", "Log level: 'debug', 'info', 'warn', 'error'")
 
-	_ = fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	if *quiet {
+		logger.InitWithWriter(*logFormat, "error", io.Discard)
+	} else {
+		logger.Init(*logFormat, *logLevel)
+	}
 
 	passVal := parsePassphrase(p1, p2, p3, p4, p5)
 	if passVal == "" {
 		passVal = generateChannelCode()
-		fmt.Fprintf(os.Stderr, "\n[!] No --channel specified. Generated High-Entropy Channel Code:\n")
-		fmt.Fprintf(os.Stderr, "    >>> %s <<<\n\n", passVal)
+		logStderr(*quiet, "\n[!] No --channel specified. Generated High-Entropy Channel Code:\n")
+		logStderr(*quiet, "    >>> %s <<<\n\n", passVal)
 	}
 
-	relayAddr := resolveRelayAddr(*r1, *r2)
+	relayAddr, err := resolveRelayAddr(*r1, *r2)
+	if err != nil {
+		return err
+	}
 
 	fileToSend := *f1
 	if *f2 != "" {
@@ -196,8 +217,7 @@ func runPublish(args []string) {
 
 	ttlDuration, err := time.ParseDuration(*ttlStr)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: invalid --ttl format: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("invalid --ttl format: %w", err)
 	}
 
 	passBytes := []byte(passVal)
@@ -206,8 +226,7 @@ func runPublish(args []string) {
 
 	pub, err := feed.NewPublisherEngine(passBytes, relayAddr)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		return err
 	}
 
 	rekeyByteLimit := parseByteSize(*rekeyBytesStr)
@@ -245,14 +264,12 @@ func runPublish(args []string) {
 	logStderr(*quiet, "====================================================\n")
 
 	if err := pub.Connect(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: failed to connect to relay: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to connect to relay: %w", err)
 	}
 
 	logStderr(*quiet, "Waiting for Subscriber connection...\n")
 	if err := pub.CompleteHandshake(ttlDuration); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: subscriber handshake failed: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("subscriber handshake failed: %w", err)
 	}
 	logStderr(*quiet, "[+] Authenticated PAKE session established! E2EE stream ready.\n")
 	logStderr(*quiet, "    🛡️ SAS Verification Badge: %s [%s]\n", pub.SASEmoji(), pub.SASFingerprint())
@@ -260,11 +277,10 @@ func runPublish(args []string) {
 	if fileToSend != "" {
 		logStderr(*quiet, "[!] Transmitting file: %s...\n", fileToSend)
 		if err := pub.SendFile(ctx, fileToSend); err != nil {
-			fmt.Fprintf(os.Stderr, "Error sending file: %v\n", err)
-			os.Exit(1)
+			return fmt.Errorf("error sending file: %w", err)
 		}
 		logStderr(*quiet, "[✓] File %s transmitted successfully!\n", filepath.Base(fileToSend))
-		return
+		return nil
 	}
 
 	if fileToSend == "" && !*streamMode && isTerminal(os.Stdin) {
@@ -274,29 +290,7 @@ func runPublish(args []string) {
 	inputChan := make(chan []byte, 10)
 	go func() {
 		defer close(inputChan)
-		scanner := bufio.NewScanner(os.Stdin)
-		for scanner.Scan() {
-			line := scanner.Text()
-			if strings.HasPrefix(line, "/send ") || strings.HasPrefix(line, "/file ") {
-				parts := strings.SplitN(line, " ", 2)
-				if len(parts) == 2 {
-					filePath := strings.TrimSpace(parts[1])
-					logStderr(*quiet, "[!] Transmitting file: %s...\n", filePath)
-					if err := pub.SendFile(ctx, filePath); err != nil {
-						fmt.Fprintf(os.Stderr, "Error sending file %s: %v\n", filePath, err)
-					} else {
-						logStderr(*quiet, "[✓] File %s transmitted successfully!\n", filepath.Base(filePath))
-					}
-					continue
-				}
-			}
-
-			msgBytes := append([]byte{protocol.TagText}, []byte(line+"\n")...)
-			crypto.RegisterBuffer(msgBytes)
-			inputChan <- msgBytes
-		}
-
-		if err := scanner.Err(); err != nil {
+		if !isTerminal(os.Stdin) {
 			readBuf := make([]byte, 32768)
 			for {
 				n, rErr := os.Stdin.Read(readBuf)
@@ -310,12 +304,36 @@ func runPublish(args []string) {
 					break
 				}
 			}
+			return
+		}
+
+		scanner := bufio.NewScanner(os.Stdin)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if strings.HasPrefix(line, "/send ") || strings.HasPrefix(line, "/file ") {
+				parts := strings.SplitN(line, " ", 2)
+				if len(parts) == 2 {
+					filePath := strings.TrimSpace(parts[1])
+					logStderr(*quiet, "[!] Transmitting file: %s...\n", filePath)
+					if err := pub.SendFile(ctx, filePath); err != nil {
+						logStderr(*quiet, "Error sending file %s: %v\n", filePath, err)
+					} else {
+						logStderr(*quiet, "[✓] File %s transmitted successfully!\n", filepath.Base(filePath))
+					}
+					continue
+				}
+			}
+
+			msgBytes := append([]byte{protocol.TagText}, []byte(line+"\n")...)
+			crypto.RegisterBuffer(msgBytes)
+			inputChan <- msgBytes
 		}
 	}()
 
 	if err := pub.PublishStream(ctx, inputChan); err != nil {
-		fmt.Fprintf(os.Stderr, "Publish stream closed: %v\n", err)
+		logStderr(*quiet, "Publish stream closed: %v\n", err)
 	}
+	return nil
 }
 
 type wipingWriter struct {
@@ -332,8 +350,8 @@ func (ww *wipingWriter) Write(p []byte) (n int, err error) {
 	return n, err
 }
 
-func runSubscribe(args []string) {
-	fs := flag.NewFlagSet("subscribe", flag.ExitOnError)
+func runSubscribe(args []string) error {
+	fs := flag.NewFlagSet("subscribe", flag.ContinueOnError)
 	p1 := fs.String("passphrase", "", "Shared passphrase for E2EE PAKE session")
 	p2 := fs.String("p", "", "Shared passphrase (shorthand)")
 	p3 := fs.String("c", "", "Shared passphrase (alias)")
@@ -348,17 +366,26 @@ func runSubscribe(args []string) {
 	fs.BoolVar(quiet, "q", false, "Silence status banners (shorthand)")
 	quicMode := fs.Bool("quic", false, "Use QUIC UDP transport mode instead of TCP")
 	fingerprint := fs.String("fingerprint", "", "Expected SPKI SHA-256 TLS certificate fingerprint for strict pinning")
+	logFormat := fs.String("log-format", "text", "Log format: 'text' (default) or 'json'")
+	logLevel := fs.String("log-level", "info", "Log level: 'debug', 'info', 'warn', 'error'")
 
-	_ = fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	if *quiet {
+		logger.InitWithWriter(*logFormat, "error", io.Discard)
+	} else {
+		logger.Init(*logFormat, *logLevel)
+	}
 
 	passVal := parsePassphrase(p1, p2, p3, p4, p5)
 	if passVal == "" && len(fs.Args()) > 0 {
 		passVal = fs.Args()[0]
 	}
 	if passVal == "" {
-		fmt.Fprintln(os.Stderr, "Error: --passphrase (or -p, -c, --code, --channel or positional invite URI) is required.")
 		fs.Usage()
-		os.Exit(1)
+		return errors.New("--passphrase (or -p, -c, --code, --channel or positional invite URI) is required")
 	}
 
 	var relayAddr string
@@ -368,7 +395,11 @@ func runSubscribe(args []string) {
 		if inv.RelayAddr != "" && *r1 == "" && *r2 == "" {
 			relayAddr = inv.RelayAddr
 		} else {
-			relayAddr = resolveRelayAddr(*r1, *r2)
+			var err error
+			relayAddr, err = resolveRelayAddr(*r1, *r2)
+			if err != nil {
+				return err
+			}
 		}
 		if inv.TransportMode == "quic" {
 			*quicMode = true
@@ -377,7 +408,11 @@ func runSubscribe(args []string) {
 			*fingerprint = inv.SPKIFingerprint
 		}
 	} else {
-		relayAddr = resolveRelayAddr(*r1, *r2)
+		var err error
+		relayAddr, err = resolveRelayAddr(*r1, *r2)
+		if err != nil {
+			return err
+		}
 	}
 
 	codeBytes := []byte(passVal)
@@ -386,8 +421,7 @@ func runSubscribe(args []string) {
 
 	sub, err := feed.NewSubscriberEngine(codeBytes, relayAddr)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
+		return err
 	}
 
 	if *fingerprint != "" {
@@ -416,13 +450,11 @@ func runSubscribe(args []string) {
 	logStderr(*quiet, "====================================================\n")
 
 	if err := sub.Connect(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: failed to connect to relay: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to connect to relay: %w", err)
 	}
 
 	if err := sub.CompleteHandshake(0); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: handshake failed: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("handshake failed: %w", err)
 	}
 	logStderr(*quiet, "[+] Authenticated PAKE session established! Decrypting stream...\n")
 	logStderr(*quiet, "    🛡️ SAS Verification Badge: %s [%s]\n", sub.SASEmoji(), sub.SASFingerprint())
@@ -430,13 +462,14 @@ func runSubscribe(args []string) {
 	stdoutWiper := &wipingWriter{w: os.Stdout}
 	if err := sub.SubscribeStream(ctx, stdoutWiper, nil); err != nil {
 		if !errors.Is(err, io.EOF) {
-			fmt.Fprintf(os.Stderr, "Stream closed: %v\n", err)
+			logStderr(*quiet, "Stream closed: %v\n", err)
 		}
 	}
+	return nil
 }
 
-func runRelay(args []string) {
-	fs := flag.NewFlagSet("relay", flag.ExitOnError)
+func runRelay(args []string) error {
+	fs := flag.NewFlagSet("relay", flag.ContinueOnError)
 	port := fs.Int("port", 8443, "Relay listening TCP/UDP port")
 	fs.IntVar(port, "p", 8443, "Relay listening TCP/UDP port (shorthand)")
 	quicMode := fs.Bool("quic", false, "Enable QUIC UDP listener alongside TCP")
@@ -447,8 +480,14 @@ func runRelay(args []string) {
 	trustProxy := fs.Bool("trust-proxy", false, "Enable PROXY Protocol v2 header parsing for trusted reverse proxies (e.g. HAProxy, AWS NLB)")
 	metricsPort := fs.Int("metrics-port", 0, "Optional HTTP port for zero-knowledge Prometheus metrics exporter (e.g. 9090)")
 	metricsAddr := fs.String("metrics-addr", "", "Optional HTTP address for zero-knowledge Prometheus metrics exporter (e.g. 127.0.0.1:9090)")
+	logFormat := fs.String("log-format", "text", "Log format: 'text' (default) or 'json'")
+	logLevel := fs.String("log-level", "info", "Log level: 'debug', 'info', 'warn', 'error'")
 
-	_ = fs.Parse(args)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+
+	logger.Init(*logFormat, *logLevel)
 
 	mAddr := *metricsAddr
 	if mAddr == "" && *metricsPort > 0 {
@@ -489,22 +528,33 @@ func runRelay(args []string) {
 		modeStr = "TCP + QUIC (UDP)"
 	}
 
-	fmt.Fprintln(os.Stderr, "====================================================")
-	fmt.Fprintln(os.Stderr, " [ZeroFeed Standalone Relay Node]")
-	fmt.Fprintf(os.Stderr, " Listening Port : %d (%s)\n", *port, modeStr)
-	if *wsPort > 0 {
-		fmt.Fprintf(os.Stderr, " WebSocket Port : %d (ws://)\n", *wsPort)
+	if logger.Format() == logger.FormatJSON {
+		logger.Info("ZeroFeed Standalone Relay Node starting",
+			"port", *port,
+			"mode", modeStr,
+			"ws_port", *wsPort,
+			"metrics_addr", mAddr,
+			"trust_proxy", *trustProxy,
+			"rate_limit", !*noRateLimit,
+		)
+	} else {
+		fmt.Fprintln(os.Stderr, "====================================================")
+		fmt.Fprintln(os.Stderr, " [ZeroFeed Standalone Relay Node]")
+		fmt.Fprintf(os.Stderr, " Listening Port : %d (%s)\n", *port, modeStr)
+		if *wsPort > 0 {
+			fmt.Fprintf(os.Stderr, " WebSocket Port : %d (ws://)\n", *wsPort)
+		}
+		if mAddr != "" {
+			fmt.Fprintf(os.Stderr, " Metrics Server : http://%s/metrics (Prometheus)\n", mAddr)
+		}
+		fmt.Fprintln(os.Stderr, " Mode           : Ephemeral RAM-Only Zero-Knowledge Relay")
+		fmt.Fprintln(os.Stderr, "====================================================")
 	}
-	if mAddr != "" {
-		fmt.Fprintf(os.Stderr, " Metrics Server : http://%s/metrics (Prometheus)\n", mAddr)
-	}
-	fmt.Fprintln(os.Stderr, " Mode           : Ephemeral RAM-Only Zero-Knowledge Relay")
-	fmt.Fprintln(os.Stderr, "====================================================")
 
 	if err := srv.Start(ctx); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: relay server failed: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("relay server failed: %w", err)
 	}
+	return nil
 }
 
 func runGen() {
@@ -544,26 +594,49 @@ func generateChannelCode() string {
 		"chi", "psi", "omega-core", "antimatter", "biome", "chronos", "darkmatter", "exoplanet",
 	}
 
-	b := make([]byte, 8)
+	b := make([]byte, 12)
 	_, _ = cryptoRand.Read(b)
 
-	w1 := words[int(b[0])%len(words)]
-	w2 := words[int(b[1])%len(words)]
-	w3 := words[int(b[2])%len(words)]
-	w4 := words[int(b[3])%len(words)]
-	w5 := words[int(b[4])%len(words)]
-	num := binary.BigEndian.Uint32(b[4:])%900000 + 100000
+	n := uint32(len(words))
+	maxVal := uint32(256) - (uint32(256) % n)
+
+	getUnbiasedWord := func(rawByte byte) string {
+		val := uint32(rawByte)
+		if val >= maxVal {
+			tb := make([]byte, 1)
+			for {
+				_, _ = cryptoRand.Read(tb)
+				val = uint32(tb[0])
+				if val < maxVal {
+					break
+				}
+			}
+		}
+		return words[val%n]
+	}
+
+	w1 := getUnbiasedWord(b[0])
+	w2 := getUnbiasedWord(b[1])
+	w3 := getUnbiasedWord(b[2])
+	w4 := getUnbiasedWord(b[3])
+	w5 := getUnbiasedWord(b[4])
+	num := binary.BigEndian.Uint32(b[5:])%900000 + 100000
 
 	return fmt.Sprintf("%s-%s-%s-%s-%s-%d", w1, w2, w3, w4, w5, num)
 }
 
-func runInvite(args []string) {
-	fs := flag.NewFlagSet("invite", flag.ExitOnError)
+func runInvite(args []string) error {
+	fs := flag.NewFlagSet("invite", flag.ContinueOnError)
 	p1 := fs.String("passphrase", "", "Shared passphrase for E2EE session")
 	p2 := fs.String("code", "", "Shared passphrase (alias)")
 	r1 := fs.String("relay", "", "Relay server address")
 	r2 := fs.String("r", "", "Relay server address (shorthand)")
-	_ = fs.Parse(args)
+	quiet := fs.Bool("quiet", false, "Silence status banners for clean piping")
+	fs.BoolVar(quiet, "q", false, "Silence status banners (shorthand)")
+
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
 
 	passVal := parsePassphrase(p1, p2, nil, nil, nil)
 	if passVal == "" && len(fs.Args()) > 0 {
@@ -584,7 +657,13 @@ func runInvite(args []string) {
 		relayAddr = feed.DefaultRelayDNS + ":" + feed.DefaultRelayPort
 	}
 	inv := feed.GenerateInvite(passVal, relayAddr)
-	fmt.Fprintln(os.Stderr, inv.FormatBanner())
+
+	if *quiet {
+		fmt.Println(inv.ToURI())
+	} else {
+		fmt.Fprintln(os.Stderr, inv.FormatBanner())
+	}
+	return nil
 }
 
 func isTerminal(f *os.File) bool {
@@ -595,12 +674,11 @@ func isTerminal(f *os.File) bool {
 	return (stat.Mode() & os.ModeCharDevice) != 0
 }
 
-func runJoin(args []string) {
+func runJoin(args []string) error {
 	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "Usage: zerofeed join <invite-code-or-uri-or-url>\n")
-		os.Exit(1)
+		return errors.New("usage: zerofeed join <invite-code-or-uri-or-url>")
 	}
-	runSubscribe(args)
+	return runSubscribe(args)
 }
 
 func printUsage() {

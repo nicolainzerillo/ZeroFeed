@@ -5,6 +5,13 @@ All notable changes to **ZeroFeed** will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.4.0] - 2026-08-11
+
+### 🚀 Features & Enhancements
+- **Structured JSON Logging Mode (`--log-format json`)**: Zero-dependency structured logger built on Go standard library `log/slog`. Outputs clean JSON logs to `stderr` for Docker, Kubernetes, and log aggregators (Loki, Datadog) while maintaining 100% zero-knowledge privacy.
+- **Relay Containerization & Docker Compose**: Production-ready multi-stage Docker build (`Dockerfile`) creating static non-root relay containers (~12 MB) with `docker-compose.yml` for 1-click self-hosting.
+- **Multi-Architecture Release Pipeline & GHCR Publishing**: GitHub Actions workflows (`.github/workflows/release.yml` & `ci.yml`) cross-compiling multi-platform binaries (`linux`, `darwin`, `windows`, `android`) and publishing multi-arch Docker images to GitHub Container Registry (`ghcr.io`).
+
 ---
 
 ## [v1.3.0] - 2026-08-10

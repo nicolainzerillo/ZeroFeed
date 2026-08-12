@@ -1,21 +1,32 @@
-version: '3.8'
-
 services:
-  zerofeed-relay:
-    build: .
+  relay:
+    build:
+      context: .
+      dockerfile: Dockerfile
     container_name: zerofeed-relay
-    restart: always
+    restart: unless-stopped
     ports:
       - "8443:8443/tcp"
       - "8443:8443/udp"
       - "8444:8444/tcp"
       - "9090:9090/tcp"
     environment:
-      - GOMAXPROCS=2
-    read_only: true
-    tmpfs:
-      - /tmp
+      - ZEROFEED_RELAY=0.0.0.0:8443
+    command:
+      - "--port"
+      - "8443"
+      - "--quic"
+      - "--ws-port"
+      - "8444"
+      - "--metrics-addr"
+      - "0.0.0.0:9090"
+      - "--log-format"
+      - "json"
     deploy:
       resources:
         limits:
-          memory: 64M
+          cpus: '1.0'
+          memory: 256M
+        reservations:
+          cpus: '0.1'
+          memory: 32M

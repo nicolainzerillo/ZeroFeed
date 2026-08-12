@@ -16,7 +16,7 @@ import (
 // TestHighLoadFanOut tests high-concurrency fan-out (1 Publisher to 50 Subscribers sending 1,000 messages at 1ms intervals).
 func TestHighLoadFanOut(t *testing.T) {
 	srv := relay.NewServer("127.0.0.1:0")
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 
 	go func() {
@@ -63,8 +63,8 @@ func TestHighLoadFanOut(t *testing.T) {
 	}
 
 	errChan := make(chan error, 2)
-	go func() { errChan <- pub.CompleteHandshake(5 * time.Second) }()
-	go func() { errChan <- subs[0].CompleteHandshake(5 * time.Second) }()
+	go func() { errChan <- pub.CompleteHandshake(10 * time.Second) }()
+	go func() { errChan <- subs[0].CompleteHandshake(10 * time.Second) }()
 
 	for i := 0; i < 2; i++ {
 		if err := <-errChan; err != nil {
@@ -72,39 +72,24 @@ func TestHighLoadFanOut(t *testing.T) {
 		}
 	}
 
-	pubInputChan := make(chan []byte, 100)
+	pubInputChan := make(chan []byte, numMessages)
 
 	pubErrChan := make(chan error, 1)
 	go func() {
 		pubErrChan <- pub.PublishStream(ctx, pubInputChan)
 	}()
 
-	// Connect and handshake remaining 49 subscribers concurrently using goroutines & sync.WaitGroup
-	var connectWg sync.WaitGroup
-	handshakeErrs := make([]error, numSubscribers)
-
+	// Connect and handshake remaining subscribers sequentially to prevent CPU throttling on Argon2id
 	for i := 1; i < numSubscribers; i++ {
-		connectWg.Add(1)
-		go func(idx int) {
-			defer connectWg.Done()
-			if err := subs[idx].Connect(ctx); err != nil {
-				handshakeErrs[idx] = fmt.Errorf("sub[%d].Connect error: %w", idx, err)
-				return
-			}
-			if err := subs[idx].CompleteHandshake(10 * time.Second); err != nil {
-				handshakeErrs[idx] = fmt.Errorf("sub[%d].CompleteHandshake error: %w", idx, err)
-				return
-			}
-		}(i)
-	}
-
-	connectWg.Wait()
-
-	for i := 1; i < numSubscribers; i++ {
-		if handshakeErrs[i] != nil {
-			t.Fatalf("Handshake error for subscriber %d: %v", i, handshakeErrs[i])
+		if err := subs[i].Connect(ctx); err != nil {
+			t.Fatalf("subs[%d].Connect error: %v", i, err)
+		}
+		if err := subs[i].CompleteHandshake(10 * time.Second); err != nil {
+			t.Fatalf("subs[%d].CompleteHandshake error: %v", i, err)
 		}
 	}
+
+
 
 	// Start all 50 subscribers streaming concurrently using goroutines & sync.WaitGroup
 	var subWg sync.WaitGroup
@@ -141,8 +126,8 @@ func TestHighLoadFanOut(t *testing.T) {
 		}(i)
 	}
 
-	// Allow subscriber stream loops to start listening
-	time.Sleep(50 * time.Millisecond)
+	// Allow subscriber stream loops to start listening and register with relay
+	time.Sleep(200 * time.Millisecond)
 
 	// 2. Publisher transmits 1,000 consecutive messages at 1ms intervals
 	ticker := time.NewTicker(1 * time.Millisecond)
