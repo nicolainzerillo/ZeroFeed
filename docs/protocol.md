@@ -76,3 +76,19 @@ When `MsgType` is `0x04`, the envelope payload contains an 8-byte BigEndian sequ
 4. **Chunked Payload Decoding**:
    - Frame payloads are decoded incrementally in **64KB chunks** via `io.ReadFull` bounds checking to eliminate DoS memory pre-allocation vulnerabilities.
 
+---
+
+## 5. Uniform Traffic Padding Specifications (1280B Bucket Padding)
+
+To defend against side-channel packet length analysis and traffic profiling:
+
+1. **Text & Control Stream Payload Padding**:
+   - Plaintext data stream payloads (`TagText`, `TagFileStart`, `TagFileEnd`) are prepended with a 2-byte big-endian `uint16` real payload length header.
+   - The payload is padded with `0x00` bytes up to a uniform target size of **1280 bytes** (IPv6 Minimum MTU) prior to AES-256-GCM encryption.
+
+2. **File Chunk Uniformity**:
+   - Binary file chunks (`TagFileChunk`) maintain native fixed-size 64KB chunks (`65,536 bytes`).
+
+3. **Wire View**:
+   - To network observers and intermediate relay nodes, all stream frames are rendered uniform in size (1318 bytes for text/control frames: 38B header + 1280B padded ciphertext), completely hiding individual message lengths, keypress timing, and payload types.
+

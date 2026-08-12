@@ -26,6 +26,7 @@ Experience zero-install, client-side E2EE WebAssembly decryption directly in you
 - **🔒 Zero-Knowledge & Zero-Disk Storage**: 100% RAM-only execution on relay nodes (`0 bytes written to disk, 0 databases, 0 payload logs`). The relay cannot decrypt or inspect payloads.
 - **🛡️ NIST FIPS 203 Hybrid Post-Quantum Cryptography**: SPAKE2+ hybrid key exchange combining **ML-KEM-768** (Module-Lattice Key Encapsulation) + **X25519** with **Argon2id** memory-hardening to protect against "Store Now, Decrypt Later" quantum attacks.
 - **📡 1-to-N Multicast Streaming**: Broadcast real-time streams concurrently from 1 CLI Publisher to N Subscribers (mix of CLI terminals and in-browser WASM instances).
+- **🎭 Side-Channel Traffic Padding**: 1280-byte uniform bucket frame padding (IPv6 Min MTU) on text/control streams to neutralize side-channel packet length analysis and traffic profiling attacks.
 - **🌐 Native Client-Side WebAssembly (WASM)**: Decrypt payloads in real-time inside browser RAM without installing local binaries, browser extensions, or creating user accounts.
 - **🇮🇹 Technical Alignment with ACN Guidelines**: Engineered in technical alignment with Italian National Cybersecurity Agency (ACN) guidelines for Quantum-Safe Hybrid Key Exchanges (ACN Luglio 2024 directives).
 - **🛡️ SAS Visual Verification Badges**: Short Authentication String (SAS) 4-element emoji/hex badges generated on client endpoints to visually confirm zero Man-in-the-Middle (MitM) interference.
