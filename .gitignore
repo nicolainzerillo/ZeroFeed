@@ -23,3 +23,7 @@ scratch/
 .idea/
 *.swp
 *.swo
+
+# Internal documentation (kept local, not tracked in git)
+docs/
+
