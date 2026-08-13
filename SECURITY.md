@@ -14,8 +14,10 @@ To maintain complete transparency with security auditors, ZeroFeed explicitly de
 
 ### 2. State-of-the-Art PQC Ephemeral Group Key Distribution (`Key Wrapping`)
 - **Composition Model**: The Publisher generates a 256-bit CSPRNG random master session key ($K_{\text{sess}}$). For each connecting subscriber, the key exchange establishes an ephemeral hybrid **ML-KEM-768 + X25519 + Argon2id** point-to-point tunnel secret ($K_{\text{p2p}}$).
-- **Key Wrapping**: $K_{\text{sess}}$ is encrypted inside $K_{\text{p2p}}$ using AES-256-GCM (`WrapSessionKey`) and delivered to subscribers inside `MsgTypePAKEStep2` envelopes.
-- **Security Guarantee**: Provides **True Ephemeral Post-Quantum Forward Secrecy (PFS)** across 1-to-N broadcast channels. Even if the passphrase is later compromised, past session recordings cannot be decrypted because $K_{\text{sess}}$ was generated randomly in RAM by the Publisher's CSPRNG and transported over quantum-safe ephemeral tunnels.
+- **Key Wrapping**: $K_{\text{sess}}$ is encrypted inside $K_{\text{p2p}}$ using AES-256-GCM (`WrapSessionKey`) and delivered to subscribers inside `MsgTypeStep2` envelopes.
+- **Security Guarantees & Threat Model**:
+  - **Passive Adversaries**: Provides **Ephemeral Post-Quantum Forward Secrecy (PFS)** across 1-to-N broadcast channels. Passive network eavesdroppers cannot decrypt past sessions even if the channel passphrase is disclosed later, because $K_{\text{sess}}$ is generated randomly in RAM by the Publisher's CSPRNG and transported via ephemeral PQC key exchanges.
+  - **Active Adversaries / Untrusted Relays**: The key-confirmation tag derived during the handshake relies on the channel passphrase. An active Man-in-the-Middle (MitM) relay node can perform offline dictionary/brute-force attacks against low-entropy human-chosen passphrases. Auto-generated high-entropy channel codes (4-word phrases, ~50+ bits of entropy) prevent offline dictionary attacks.
 
 ### 3. "Zero-Knowledge Relay" (ZKR) Architecture
 - **Relay Blindness**: Relays operate 100% in volatile RAM with zero disk persistence, zero databases, and zero payload logging. Relays match sessions via 32-byte Argon2id Blind HMAC tags (`DeriveBlindMatchTag`).
@@ -31,7 +33,7 @@ To maintain complete transparency with security auditors, ZeroFeed explicitly de
 - **Traffic Analysis**: E2EE does not hide network IP addresses or traffic timing against global adversaries. For complete IP anonymity, users should run ZeroFeed over **Tor** (`torsocks zerofeed ...`) or **I2P**.
 
 ### 6. Relay DoS Defense & PoW Roadmap
-- **Relay Rate Limiting**: Abuse detection bans IPs after 3 failed PAKE attempts or malformed frame injections (`pkg/relay/ratelimit.go`).
+- **Relay Rate Limiting**: Abuse detection bans IPs after 3 failed handshake attempts or malformed frame injections (`pkg/relay/ratelimit.go`).
 - **Backpressure Flow Control**: High Watermark (80%) and Low Watermark (40%) flow control pauses publisher ingestion if a subscriber reads slowly, preventing unbounded RAM accumulation.
 - **Proof-of-Work Roadmap**: Public relays are courtesy ephemeral rendezvous nodes. Natively integrated Hashcash Proof-of-Work (PoW) channel reservation is planned for v1.4.
 

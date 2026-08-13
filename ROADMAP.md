@@ -13,7 +13,7 @@ This roadmap is public and honest: items listed here are concrete engineering go
 > Focus: **Post-Quantum State-of-the-Art Security**, **Observability**, **Relay Containerization**, and **Multi-Arch Pipelines**
 
 - [x] **State-of-the-Art PQC Ephemeral Group Key Distribution (`PQC Key Wrapping`)**  
-  Random 256-bit CSPRNG master session key ($K_{\text{sess}}$) wrapped inside hybrid **ML-KEM-768 + X25519 + Argon2id** PAKE tunnels for each subscriber, providing True Ephemeral Post-Quantum Forward Secrecy (PFS) across 1-to-N broadcast channels.  
+  Random 256-bit CSPRNG master session key ($K_{\text{sess}}$) wrapped inside hybrid **ML-KEM-768 + X25519 + Argon2id** key-wrapping tunnels for each subscriber, providing Ephemeral Post-Quantum Forward Secrecy (PFS) across 1-to-N broadcast channels.  
   _Implemented in_: `pkg/crypto/cipher.go`, `pkg/feed/publisher.go`, `pkg/feed/subscriber.go`
 
 - [x] **Thread-Safe AEAD Cipher Engine**  
