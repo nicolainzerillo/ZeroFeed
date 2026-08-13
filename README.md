@@ -23,8 +23,8 @@ Experience zero-install, client-side E2EE WebAssembly decryption directly in you
 
 ## 🌟 Key Architectural Features
 
-- **🔒 Zero-Knowledge & Zero-Disk Storage**: 100% RAM-only execution on relay nodes (`0 bytes written to disk, 0 databases, 0 payload logs`). The relay cannot decrypt or inspect payloads.
-- **🛡️ NIST FIPS 203 Hybrid Post-Quantum Cryptography**: SPAKE2+ hybrid key exchange combining **ML-KEM-768** (Module-Lattice Key Encapsulation) + **X25519** with **Argon2id** memory-hardening to protect against "Store Now, Decrypt Later" quantum attacks.
+- **🔒 Zero-Knowledge & Zero-Disk Storage**: 100% RAM-only execution on relay nodes (`0 bytes written to disk, 0 databases, 0 payload logs`). Automated background Session Reaper purges orphaned sessions without active connections every 2 minutes.
+- **🛡️ NIST FIPS 203 State-of-the-Art PQC Key Wrapping**: Random 256-bit CSPRNG master session key ($K_{\text{sess}}$) encrypted inside a hybrid **ML-KEM-768** (Module-Lattice Key Encapsulation) + **X25519** PAKE envelope for each subscriber connection (`WrapSessionKey`), providing True Ephemeral Post-Quantum Forward Secrecy (PFS) across 1-to-N broadcast channels.
 - **📡 1-to-N Multicast Streaming**: Broadcast real-time streams concurrently from 1 CLI Publisher to N Subscribers (mix of CLI terminals and in-browser WASM instances).
 - **🎭 Side-Channel Traffic Padding**: 1280-byte uniform bucket frame padding (IPv6 Min MTU) on text/control streams to neutralize side-channel packet length analysis and traffic profiling attacks.
 - **🌐 Native Client-Side WebAssembly (WASM)**: Decrypt payloads in real-time inside browser RAM without installing local binaries, browser extensions, or creating user accounts.

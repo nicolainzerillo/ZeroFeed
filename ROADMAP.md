@@ -10,7 +10,19 @@ This roadmap is public and honest: items listed here are concrete engineering go
 
 ## ✅ v1.4 — Current Release
 
-> Focus: **Observability**, **Relay Containerization**, and **Multi-Arch Release Pipelines**
+> Focus: **Post-Quantum State-of-the-Art Security**, **Observability**, **Relay Containerization**, and **Multi-Arch Pipelines**
+
+- [x] **State-of-the-Art PQC Ephemeral Group Key Distribution (`PQC Key Wrapping`)**  
+  Random 256-bit CSPRNG master session key ($K_{\text{sess}}$) wrapped inside hybrid **ML-KEM-768 + X25519 + Argon2id** PAKE tunnels for each subscriber, providing True Ephemeral Post-Quantum Forward Secrecy (PFS) across 1-to-N broadcast channels.  
+  _Implemented in_: `pkg/crypto/cipher.go`, `pkg/feed/publisher.go`, `pkg/feed/subscriber.go`
+
+- [x] **Thread-Safe AEAD Cipher Engine**  
+  `sync.RWMutex` synchronization across `Cipher` struct methods (`UpdateKey`, `Encrypt`, `Decrypt`, `Close`) ensuring 100% thread-safety during active key ratcheting.  
+  _Implemented in_: `pkg/crypto/cipher.go`
+
+- [x] **Relay Memory-Leak Prevention (Automated Session Reaper)**  
+  Periodic background worker (`reapStaleSessions()`) running every 2 minutes in `pkg/relay/server.go` to purge orphaned sessions lacking active connections, eliminating long-term RAM accumulation.  
+  _Implemented in_: `pkg/relay/server.go`, `pkg/relay/session.go`
 
 - [x] **Structured JSON logging mode** (`--log-format json`)  
   Zero-dependency machine-readable log output on `stderr` built with Go stdlib `log/slog` for CI/CD pipelines and log aggregators (Loki, Datadog) without leaking payload content or cryptographic key material.  
@@ -26,46 +38,23 @@ This roadmap is public and honest: items listed here are concrete engineering go
 
 ---
 
-## ✅ v1.3 — Previous Release
+## 🗓️ Planned Engineering Tasks (Next Sprint)
 
-> Focus: **Relay resilience**, **Stateless Invites**, and **Enterprise Unit Test Suite**
+- [ ] **WASM Zero-Copy Uint8Array Buffer Interface**  
+  Refactor `cmd/wasm/main.go` to accept `js.TypedArray` / `Uint8Array` directly via `js.CopyBytesToGo()` instead of hex/plain Go `string` objects, eliminating immutable string memory leaks in browser V8/WebKit heaps.
 
-- [x] **Multi-relay list with automatic fallback**  
-  The CLI accepts a comma-separated list of relay addresses (or resolves default DNS relays) and falls through to the next relay on connection failure, eliminating single points of failure.  
-  _Implemented in_: `pkg/feed/relay_list.go`, `main.go`
-- [x] **Client-Generated Stateless Invite System**  
-  Zero-knowledge, 100% stateless invite links (`zerofeed invite [code]` / `zerofeed join <invite>`) supporting terminal ASCII cards, native `zerofeed://` URIs, and Web `#join=` URL fragments.  
-  _Implemented in_: `pkg/feed/invite.go`, `main.go`, `ZeroFeed-Landing`
-- [x] **`SIGPIPE` graceful termination**  
-  Piping `zerofeed sub | head -n 10` handles `syscall.SIGPIPE` and exits cleanly with status 0 without printing panics or tracebacks.  
-  _Implemented in_: `main.go`
-- [x] **Relay backpressure / flow control**  
-  Watermark-driven flow control (`HighWatermark` 80% / `LowWatermark` 40%) with `WaitForDrain()` pauses fast publishers on slow subscriber sessions to prevent relay RAM saturation.  
-  _Implemented in_: `pkg/relay/session.go`, `pkg/relay/slow_consumer_test.go`
-- [x] **Configurable relay address via `ZEROFEED_RELAY` env var**  
-  Full parity between CLI `--relay` flag and `ZEROFEED_RELAY` environment variable.  
-  _Implemented in_: `main.go`, `pkg/feed/relay_list.go`
-- [x] **SAS (Short Authentication String) visual badge**  
-  Displays deterministic 8-hex character fingerprint and 4-emoji visual badge (`[🛡️ ⚡ 🚀 💎]`) on both terminals after PAKE completion for out-of-band Anti-MITM verification.  
-  _Implemented in_: `pkg/crypto/cipher.go`, `main.go`
-- [x] **In-stream key rekeying (Forward Secrecy per chunk)**  
-  Automatic session key ratcheting every 1 GB transferred or every 1 hour, zeroizing parent keys in RAM immediately.  
-  _Implemented in_: `pkg/feed/publisher.go`, `pkg/crypto/cipher.go`
-- [x] **Enterprise Security-Grade Unit Test Suite (>85% target coverage)**  
-  Extensive Table-Driven tests, native Go Fuzzing (`FuzzDecodeEnvelope`), memory zeroization assertions (`ZeroBytesSlice`), and Prometheus metrics unit tests.  
-  _Implemented in_: `pkg/crypto`, `pkg/feed`, `pkg/relay`, `pkg/transport`, `pkg/protocol`
+- [ ] **Resilient `handleSyncRequests` Worker Loop**  
+  Refactor the background `handleSyncRequests` goroutine in `publisher.go` so temporary socket timeouts or network resets do not terminate the sync listener permanently.
 
----
+- [ ] **Dynamic Lowest-RTT Relay Selection (Active Latency Probing)**  
+  Enhance `pkg/feed/relay_list.go` with parallel ICMP/TCP RTT latency probing to automatically select the lowest-latency relay node (EU, US, Asia).
 
-## 🗓️ v1.4 — Planned
+- [ ] **Production Domain Migration & Cloudflare Infrastructure (`relay.zerofeed.app`)**  
+  Migrate public relay endpoint from DuckDNS (`zerofeed.duckdns.org`) to dedicated custom production domain `relay.zerofeed.app` behind Cloudflare Free Tier + Let's Encrypt TLS.
 
-> Focus: **Observability** and **Developer Experience**
+- [ ] **Continuous PQC Performance Benchmark Suite**  
+  Create benchmark scripts in `scripts/` measuring handshake latency and CPU memory overhead of ML-KEM-768 hybrid key exchange on Native CLI vs WASM.
 
-- [ ] **Structured JSON logging mode** (`--log-format json`)  
-  Machine-readable log output for CI/CD pipelines and log aggregators (Loki, Datadog, etc.) without leaking payload content.
-
-- [ ] **Automated CI/CD Release Pipelines & Multi-arch Binaries**  
-  GitHub Actions matrix generating static binaries for `darwin/arm64`, `darwin/amd64`, `linux/amd64`, `linux/arm64`, and `windows/amd64`.
 
 ---
 

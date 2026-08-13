@@ -12,11 +12,10 @@ To maintain complete transparency with security auditors, ZeroFeed explicitly de
 - **No Custom Lattice Math**: ZeroFeed **does not** implement custom lattice sampling or un-audited PQC math.
 - **Official Implementation**: Post-Quantum ML-KEM-768 lattice key encapsulation relies strictly on **`golang.org/x/crypto/mlkem`**, maintained directly by Google's Go Cryptography Team (FIPS 203 compliant).
 
-### 2. Dual-Input Hybrid Key Combiner (Signal PQXDH Style)
-- **Composition Model**: Key exchange combines classical X25519 PAKE with ML-KEM-768 lattice key encapsulation using a **Dual-Input HKDF Key Combiner**:
-  $$\text{PRK} = \text{HKDF-Extract}(\text{salt}, S_{\text{pake}} \parallel S_{\text{kem}})$$
-  $$K_{\text{session}} = \text{HKDF-Expand}(\text{PRK}, \text{"zerofeed-v3-hybrid-pqc-aead"}, 32)$$
-- **Security Guarantee**: Because both $S_{\text{pake}}$ and $S_{\text{kem}}$ are combined into HKDF-SHA256, if *either* X25519 PAKE *or* ML-KEM-768 remains secure, the resulting session key $K_{\text{session}}$ is computationally indistinguishable from random.
+### 2. State-of-the-Art PQC Ephemeral Group Key Distribution (`Key Wrapping`)
+- **Composition Model**: The Publisher generates a 256-bit CSPRNG random master session key ($K_{\text{sess}}$). For each connecting subscriber, the key exchange establishes an ephemeral hybrid **ML-KEM-768 + X25519 + Argon2id** point-to-point tunnel secret ($K_{\text{p2p}}$).
+- **Key Wrapping**: $K_{\text{sess}}$ is encrypted inside $K_{\text{p2p}}$ using AES-256-GCM (`WrapSessionKey`) and delivered to subscribers inside `MsgTypePAKEStep2` envelopes.
+- **Security Guarantee**: Provides **True Ephemeral Post-Quantum Forward Secrecy (PFS)** across 1-to-N broadcast channels. Even if the passphrase is later compromised, past session recordings cannot be decrypted because $K_{\text{sess}}$ was generated randomly in RAM by the Publisher's CSPRNG and transported over quantum-safe ephemeral tunnels.
 
 ### 3. "Zero-Knowledge Relay" (ZKR) Architecture
 - **Relay Blindness**: Relays operate 100% in volatile RAM with zero disk persistence, zero databases, and zero payload logging. Relays match sessions via 32-byte Argon2id Blind HMAC tags (`DeriveBlindMatchTag`).
