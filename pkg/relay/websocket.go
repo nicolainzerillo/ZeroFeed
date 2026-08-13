@@ -9,11 +9,45 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 )
 
 const wsMagicGUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+
+func isAllowedOrigin(origin string, host string) bool {
+	if envAllowed := os.Getenv("ZEROFEED_ALLOWED_ORIGINS"); envAllowed != "" {
+		if envAllowed == "*" {
+			return true
+		}
+		for _, allowed := range strings.Split(envAllowed, ",") {
+			if strings.EqualFold(strings.TrimSpace(allowed), origin) {
+				return true
+			}
+		}
+	}
+
+	lowerOrigin := strings.ToLower(origin)
+	if strings.HasPrefix(lowerOrigin, "http://localhost") ||
+		strings.HasPrefix(lowerOrigin, "https://localhost") ||
+		strings.HasPrefix(lowerOrigin, "http://127.0.0.1") ||
+		strings.HasPrefix(lowerOrigin, "https://127.0.0.1") {
+		return true
+	}
+
+	if lowerOrigin == "https://nicolainzerillo.github.io" || strings.HasSuffix(lowerOrigin, ".github.io") {
+		return true
+	}
+
+	if host != "" {
+		if lowerOrigin == "http://"+strings.ToLower(host) || lowerOrigin == "https://"+strings.ToLower(host) {
+			return true
+		}
+	}
+
+	return false
+}
 
 type wsConn struct {
 	net.Conn
@@ -156,6 +190,11 @@ func UpgradeWebSocket(w http.ResponseWriter, r *http.Request) (net.Conn, error) 
 	clientKey := strings.TrimSpace(r.Header.Get("Sec-WebSocket-Key"))
 	if clientKey == "" {
 		return nil, errors.New("missing Sec-WebSocket-Key header")
+	}
+
+	origin := strings.TrimSpace(r.Header.Get("Origin"))
+	if origin != "" && !isAllowedOrigin(origin, r.Host) {
+		return nil, errors.New("websocket: origin not allowed")
 	}
 
 	hj, ok := w.(http.Hijacker)

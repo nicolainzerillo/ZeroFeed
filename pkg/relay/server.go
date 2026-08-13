@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -94,7 +95,11 @@ func (srv *Server) StartWebSocketTLSServer(ctx context.Context, listenAddr strin
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		wsConn, err := UpgradeWebSocket(w, r)
 		if err != nil {
-			http.Error(w, "WebSocket Upgrade Failed", http.StatusBadRequest)
+			if strings.Contains(err.Error(), "origin not allowed") {
+				http.Error(w, "Forbidden: Invalid Origin", http.StatusForbidden)
+			} else {
+				http.Error(w, "WebSocket Upgrade Failed", http.StatusBadRequest)
+			}
 			return
 		}
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -81,5 +82,43 @@ func TestCloseServer(t *testing.T) {
 	err := srv.Close()
 	if err != nil {
 		t.Fatalf("srv.Close error: %v", err)
+	}
+}
+
+func TestWebSocketOriginValidation(t *testing.T) {
+	// Blocked cross-site origin
+	reqBad := httptest.NewRequest("GET", "/ws", nil)
+	reqBad.Header.Set("Upgrade", "websocket")
+	reqBad.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+	reqBad.Header.Set("Origin", "https://malicious-site.com")
+	rrBad := httptest.NewRecorder()
+
+	_, errBad := relay.UpgradeWebSocket(rrBad, reqBad)
+	if errBad == nil || !strings.Contains(errBad.Error(), "origin not allowed") {
+		t.Fatalf("expected origin not allowed error, got: %v", errBad)
+	}
+
+	// Allowed localhost origin
+	reqLocal := httptest.NewRequest("GET", "/ws", nil)
+	reqLocal.Header.Set("Upgrade", "websocket")
+	reqLocal.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+	reqLocal.Header.Set("Origin", "http://localhost:8080")
+	rrLocal := httptest.NewRecorder()
+
+	_, errLocal := relay.UpgradeWebSocket(rrLocal, reqLocal)
+	if errLocal != nil && strings.Contains(errLocal.Error(), "origin not allowed") {
+		t.Fatalf("localhost origin should be allowed, but was rejected: %v", errLocal)
+	}
+
+	// Allowed GitHub Pages origin
+	reqGH := httptest.NewRequest("GET", "/ws", nil)
+	reqGH.Header.Set("Upgrade", "websocket")
+	reqGH.Header.Set("Sec-WebSocket-Key", "dGhlIHNhbXBsZSBub25jZQ==")
+	reqGH.Header.Set("Origin", "https://nicolainzerillo.github.io")
+	rrGH := httptest.NewRecorder()
+
+	_, errGH := relay.UpgradeWebSocket(rrGH, reqGH)
+	if errGH != nil && strings.Contains(errGH.Error(), "origin not allowed") {
+		t.Fatalf("github.io origin should be allowed, but was rejected: %v", errGH)
 	}
 }
