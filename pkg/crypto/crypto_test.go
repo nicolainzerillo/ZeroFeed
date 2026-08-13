@@ -355,3 +355,48 @@ func TestCalculateSAS(t *testing.T) {
 		t.Fatalf("expected deterministic SAS output for identical keys")
 	}
 }
+
+func TestPAKEKeyConfirmation(t *testing.T) {
+	passphrase := []byte("confirm-test-passphrase-88")
+
+	pubPeer, err := crypto.NewPAKEPublisher(passphrase)
+	if err != nil {
+		t.Fatalf("NewPAKEPublisher failed: %v", err)
+	}
+	defer pubPeer.Close()
+
+	subPeer, err := crypto.NewPAKESubscriber(passphrase)
+	if err != nil {
+		t.Fatalf("NewPAKESubscriber failed: %v", err)
+	}
+	defer subPeer.Close()
+
+	if err := pubPeer.Update(subPeer.Bytes()); err != nil {
+		t.Fatalf("pubPeer.Update failed: %v", err)
+	}
+	if err := subPeer.Update(pubPeer.Bytes()); err != nil {
+		t.Fatalf("subPeer.Update failed: %v", err)
+	}
+
+	pubTag, err := pubPeer.ConfirmTag()
+	if err != nil {
+		t.Fatalf("pubPeer.ConfirmTag failed: %v", err)
+	}
+	subTag, err := subPeer.ConfirmTag()
+	if err != nil {
+		t.Fatalf("subPeer.ConfirmTag failed: %v", err)
+	}
+
+	if err := subPeer.VerifyPeerConfirm(pubTag); err != nil {
+		t.Fatalf("subPeer failed to verify pubTag: %v", err)
+	}
+	if err := pubPeer.VerifyPeerConfirm(subTag); err != nil {
+		t.Fatalf("pubPeer failed to verify subTag: %v", err)
+	}
+
+	// Corrupted tag verification must fail
+	pubTag[0] ^= 0xFF
+	if err := subPeer.VerifyPeerConfirm(pubTag); err == nil {
+		t.Fatal("expected error verifying corrupted peer confirmation tag, got nil")
+	}
+}

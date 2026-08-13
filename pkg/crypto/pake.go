@@ -85,42 +85,20 @@ func newPAKEPeer(passphrase []byte, role int) (*PAKEPeer, error) {
 		encapKeyBytes := decapKey.EncapsulationKey().Bytes()
 		pubRaw := append(append([]byte(nil), pubRawX25519...), encapKeyBytes...)
 
-		// Pad raw payload to UniformWireMsgSize (1280B)
+		// Pad raw payload to UniformWireMsgSize (1280B) using CSPRNG random noise
 		pubPadded := make([]byte, UniformWireMsgSize)
-		copy(pubPadded, pubRaw)
-
-		// Blind Subscriber's 1280-byte message with memory-hard Argon2id passphrase-derived mask
-		salt := append([]byte("zerofeed-v3-pake-blinding-salt:"), byte(role))
-		mask, err := deriveMemoryHardWireMask(passphrase, salt, UniformWireMsgSize)
-		if err != nil {
+		if _, err := rand.Read(pubPadded[len(pubRaw):]); err != nil {
 			ZeroBytes(passCopy)
-			return nil, err
+			return nil, fmt.Errorf("zerofeed/crypto: failed to generate random padding: %w", err)
 		}
-		defer ZeroBytes(mask)
-
-		pubBlinded := make([]byte, UniformWireMsgSize)
-		for i := 0; i < UniformWireMsgSize; i++ {
-			pubBlinded[i] = pubPadded[i] ^ mask[i]
-		}
-		peer.pubBytes = pubBlinded
+		copy(pubPadded, pubRaw)
+		peer.pubBytes = pubPadded
 	}
 
 	return peer, nil
 }
 
-func deriveMemoryHardWireMask(passphrase []byte, salt []byte, length int) ([]byte, error) {
-	combo := append(append([]byte("zerofeed-v3-domain-salt-context:"), passphrase...), salt...)
-	domainSalt := sha256.Sum256(combo)
-	ZeroBytes(combo)
-
-	argonKey := argon2.IDKey(passphrase, domainSalt[:], 1, 16*1024, 2, KeySize)
-	defer ZeroBytes(argonKey)
-	defer ZeroBytes(domainSalt[:])
-
-	return HKDFSHA256(argonKey, domainSalt[:], []byte("zerofeed-v3-pake-wire-mask"), length)
-}
-
-// Bytes returns the blinded public key byte slice to send to the peer.
+// Bytes returns the public key byte slice to send to the peer.
 func (p *PAKEPeer) Bytes() []byte {
 	if p == nil {
 		return nil
@@ -128,27 +106,13 @@ func (p *PAKEPeer) Bytes() []byte {
 	return p.pubBytes
 }
 
-// Update processes the remote peer's blinded message and computes the post-quantum shared master secret.
+// Update processes the remote peer's ephemeral public message and computes the post-quantum shared master secret.
 func (p *PAKEPeer) Update(peerBytes []byte) error {
-	peerRole := 3 - p.role
-
 	if len(peerBytes) != UniformWireMsgSize {
 		return ErrInvalidPeerMsg
 	}
 
-	// Unblind peer's message using memory-hard Argon2id derivation
-	salt := append([]byte("zerofeed-v3-pake-blinding-salt:"), byte(peerRole))
-	mask, err := deriveMemoryHardWireMask(p.passphrase, salt, UniformWireMsgSize)
-	if err != nil {
-		return err
-	}
-	defer ZeroBytes(mask)
-
-	peerRaw := make([]byte, UniformWireMsgSize)
-	for i := 0; i < UniformWireMsgSize; i++ {
-		peerRaw[i] = peerBytes[i] ^ mask[i]
-	}
-	defer ZeroBytes(peerRaw)
+	peerRaw := peerBytes
 
 	// Extract peer X25519 public key (first 32 bytes)
 	peerX25519Raw := peerRaw[:32]
@@ -183,20 +147,11 @@ func (p *PAKEPeer) Update(peerBytes []byte) error {
 		pubRaw := append(append([]byte(nil), pubX25519Raw...), ciphertext...)
 
 		pubPadded := make([]byte, UniformWireMsgSize)
+		if _, err := rand.Read(pubPadded[len(pubRaw):]); err != nil {
+			return fmt.Errorf("zerofeed/crypto: failed to generate random publisher padding: %w", err)
+		}
 		copy(pubPadded, pubRaw)
-
-		pubSalt := append([]byte("zerofeed-v3-pake-blinding-salt:"), byte(p.role))
-		pubMask, err := deriveMemoryHardWireMask(p.passphrase, pubSalt, UniformWireMsgSize)
-		if err != nil {
-			return err
-		}
-		defer ZeroBytes(pubMask)
-
-		pubBlinded := make([]byte, UniformWireMsgSize)
-		for i := 0; i < UniformWireMsgSize; i++ {
-			pubBlinded[i] = pubPadded[i] ^ pubMask[i]
-		}
-		p.pubBytes = pubBlinded
+		p.pubBytes = pubPadded
 	} else {
 		// Subscriber (Role 2) processes Publisher's (Role 1) ML-KEM Ciphertext (1088 bytes starting at index 32)
 		peerMLKEMCiphertext := peerRaw[32 : 32+1088]
@@ -248,6 +203,31 @@ func DeriveBlindMatchTag(argon2Key []byte) [32]byte {
 	h.Write([]byte("zerofeed-relay-blind-match-tag-v3"))
 	copy(tag[:], h.Sum(nil))
 	return tag
+}
+
+// ConfirmTag returns the HMAC key confirmation tag for this peer.
+func (p *PAKEPeer) ConfirmTag() ([]byte, error) {
+	if p == nil || p.sharedKey == nil {
+		return nil, ErrPAKEFailed
+	}
+	mac := hmac.New(sha256.New, p.sharedKey)
+	mac.Write([]byte("zerofeed-v3-pake-key-confirmation-v1"))
+	mac.Write([]byte{byte(p.role)})
+	return mac.Sum(nil), nil
+}
+
+// VerifyPeerConfirm checks the HMAC key confirmation tag from the remote peer.
+func (p *PAKEPeer) VerifyPeerConfirm(peerTag []byte) error {
+	if p == nil || p.sharedKey == nil || len(peerTag) == 0 {
+		return ErrPAKEFailed
+	}
+	expectedMAC := hmac.New(sha256.New, p.sharedKey)
+	expectedMAC.Write([]byte("zerofeed-v3-pake-key-confirmation-v1"))
+	expectedMAC.Write([]byte{byte(3 - p.role)})
+	if !hmac.Equal(peerTag, expectedMAC.Sum(nil)) {
+		return fmt.Errorf("%w: peer key confirmation tag mismatch", ErrPAKEFailed)
+	}
+	return nil
 }
 
 // SessionKey returns the derived shared master secret after successful PAKE exchange.

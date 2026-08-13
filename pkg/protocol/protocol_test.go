@@ -85,9 +85,9 @@ func TestProtocolVersionCheck(t *testing.T) {
 		t.Fatalf("expected ErrUnsupportedVer for version 0x01, got %v", err)
 	}
 
-	// 2. Version 0x02 (current version) -> expect success
+	// 2. Version 0x03 (current version) -> expect success
 	currEnv := &protocol.Envelope{
-		Version:   0x02,
+		Version:   0x03,
 		MsgType:   protocol.MsgTypePAKEInitPub,
 		SessionID: sessionID,
 		Nonce:     nonce,
@@ -97,10 +97,10 @@ func TestProtocolVersionCheck(t *testing.T) {
 	_ = protocol.Encode(buf, currEnv)
 	decodedCurr, err := protocol.Decode(buf)
 	if err != nil {
-		t.Fatalf("Decode v0x02 failed: %v", err)
+		t.Fatalf("Decode v0x03 failed: %v", err)
 	}
-	if decodedCurr.Version != 0x02 {
-		t.Fatalf("expected version 0x02, got 0x%02X", decodedCurr.Version)
+	if decodedCurr.Version != 0x03 {
+		t.Fatalf("expected version 0x03, got 0x%02X", decodedCurr.Version)
 	}
 }
 

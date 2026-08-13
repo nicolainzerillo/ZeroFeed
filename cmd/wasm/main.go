@@ -157,31 +157,54 @@ func pakeUpdateSub(this js.Value, args []js.Value) interface{} {
 	if subPeer == nil {
 		return map[string]interface{}{"error": "PAKE subscriber peer not initialized"}
 	}
-	if len(args) < 2 {
-		return map[string]interface{}{"error": "pubWireMsgHex and passphrase required"}
+	if len(args) < 1 {
+		return map[string]interface{}{"error": "pubWireMsgHex required"}
 	}
 	pubMsg, err := hex.DecodeString(args[0].String())
 	if err != nil {
 		return map[string]interface{}{"error": "invalid pubWireMsgHex"}
 	}
-	passphrase := []byte(args[1].String())
 
-	if err := subPeer.Update(pubMsg); err != nil {
+	if len(pubMsg) < crypto.UniformWireMsgSize+60+32 {
+		return map[string]interface{}{"error": "invalid PAKE response size or missing required key confirmation tag"}
+	}
+
+	pakeBytes := pubMsg[:crypto.UniformWireMsgSize]
+	wrappedKeyPayload := pubMsg[crypto.UniformWireMsgSize : crypto.UniformWireMsgSize+60]
+	pubConfirmTag := pubMsg[crypto.UniformWireMsgSize+60 : crypto.UniformWireMsgSize+60+32]
+
+	if err := subPeer.Update(pakeBytes); err != nil {
 		return map[string]interface{}{"error": err.Error()}
 	}
 
-	sessionID := feed.DeriveSessionID(passphrase)
-	sessionKey, err := crypto.DeriveKey(passphrase, sessionID[:])
+	if err := subPeer.VerifyPeerConfirm(pubConfirmTag); err != nil {
+		return map[string]interface{}{"error": "publisher key confirmation tag mismatch: " + err.Error()}
+	}
+
+	subConfirmTag, err := subPeer.ConfirmTag()
+	if err != nil {
+		return map[string]interface{}{"error": "failed to generate subscriber confirm tag: " + err.Error()}
+	}
+
+	p2pKey, err := subPeer.SessionKey()
 	if err != nil {
 		return map[string]interface{}{"error": err.Error()}
 	}
+	defer crypto.ZeroBytes(p2pKey)
 
-	sasHex, sasEmoji := crypto.CalculateSAS(sessionKey)
+	masterSessionKey, err := crypto.UnwrapSessionKey(p2pKey, wrappedKeyPayload)
+	if err != nil {
+		return map[string]interface{}{"error": err.Error()}
+	}
+	defer crypto.ZeroBytes(masterSessionKey)
+
+	sasHex, sasEmoji := crypto.CalculateSAS(masterSessionKey)
 
 	return map[string]interface{}{
-		"sessionKeyHex": hex.EncodeToString(sessionKey),
-		"sasHex":        sasHex,
-		"sasEmoji":      sasEmoji,
+		"sessionKeyHex":    hex.EncodeToString(masterSessionKey),
+		"subConfirmTagHex": hex.EncodeToString(subConfirmTag),
+		"sasHex":           sasHex,
+		"sasEmoji":         sasEmoji,
 	}
 }
 

@@ -4,10 +4,16 @@ import (
 	"fmt"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/zerofeed/zerofeed/pkg/protocol"
 )
+
+// subKeyCounter yields a process-unique suffix so subscriber map keys never
+// collide even when several clients share one source address (e.g. all sitting
+// behind the same reverse proxy under --trust-proxy).
+var subKeyCounter atomic.Uint64
 
 const (
 	SubscriberQueueSize = 200
@@ -41,6 +47,18 @@ func NewClientConn(conn net.Conn, role uint8, initialEnv *protocol.Envelope) *Cl
 	}
 
 	return c
+}
+
+// IsClosed reports whether this connection has been closed. It reads only the
+// done channel, so it is safe to call while another goroutine is reading the
+// underlying socket.
+func (c *ClientConn) IsClosed() bool {
+	select {
+	case <-c.done:
+		return true
+	default:
+		return false
+	}
 }
 
 // QueueLen returns the current number of buffered envelopes in subscriber send queue.
@@ -165,16 +183,51 @@ type RelaySession struct {
 	sessionID   [protocol.SessionIDSize]byte
 	publisher   *ClientConn
 	subscribers map[string]*ClientConn
+	createdAt   time.Time
 	mu          sync.RWMutex
 	closed      bool
 }
+
+// sessionGracePeriod is how long a freshly created session is kept even while
+// empty. getOrCreateSession returns before the caller registers its publisher or
+// subscriber, so without a grace period the reaper can delete a session in that
+// window and the two peers then build separate sessions and never meet.
+const sessionGracePeriod = 30 * time.Second
 
 // NewRelaySession creates a new ephemeral in-memory session.
 func NewRelaySession(sessionID [protocol.SessionIDSize]byte) *RelaySession {
 	return &RelaySession{
 		sessionID:   sessionID,
 		subscribers: make(map[string]*ClientConn),
+		createdAt:   time.Now(),
 	}
+}
+
+// IsEmpty returns true if there is no active publisher and no active subscribers.
+func (s *RelaySession) IsEmpty() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	if s.closed {
+		return true
+	}
+	hasPub := s.publisher != nil && s.publisher.netConn != nil
+	hasSubs := len(s.subscribers) > 0
+	return !hasPub && !hasSubs
+}
+
+// IsReapable reports whether the session is empty and old enough to discard.
+// Sessions inside sessionGracePeriod are kept even when empty, so a session
+// created for a peer that has not finished registering is not torn down.
+func (s *RelaySession) IsReapable() bool {
+	s.mu.RLock()
+	createdAt := s.createdAt
+	s.mu.RUnlock()
+
+	if !s.IsEmpty() {
+		return false
+	}
+	return time.Since(createdAt) >= sessionGracePeriod
 }
 
 // RegisterPublisher sets the publisher for this session after inspecting liveness of any existing connection.
@@ -183,19 +236,18 @@ func (s *RelaySession) RegisterPublisher(conn net.Conn, env *protocol.Envelope) 
 	defer s.mu.Unlock()
 
 	if s.publisher != nil && s.publisher.netConn != nil {
-		// Probe existing publisher connection liveness with deadline
-		_ = s.publisher.netConn.SetReadDeadline(time.Now().Add(1 * time.Millisecond))
-		var oneByte [1]byte
-		_, err := s.publisher.netConn.Read(oneByte[:])
-		_ = s.publisher.netConn.SetReadDeadline(time.Time{})
-
-		// If connection is active and responsive, reject duplicate registration
-		if err == nil {
+		// Do NOT read the existing socket to probe liveness: its loopPublisher
+		// goroutine is already reading it, and a stolen byte would desync the
+		// framed protocol. Rely on the connection's own teardown signal instead.
+		// A dead publisher's read loop closes the ClientConn (and tears down the
+		// session) on its next failed Decode or the 5-minute read deadline.
+		if !s.publisher.IsClosed() {
+			// Existing publisher still active — reject the duplicate.
 			_ = conn.Close()
 			return nil
 		}
 
-		// Clean up dead connection
+		// Existing publisher already torn down — replace it.
 		_ = s.publisher.Close()
 		s.publisher = nil
 	}
@@ -205,15 +257,18 @@ func (s *RelaySession) RegisterPublisher(conn net.Conn, env *protocol.Envelope) 
 	return pub
 }
 
-// RegisterSubscriber adds a subscriber to this session.
+// RegisterSubscriber adds a subscriber to this session, returning the key that
+// identifies it in the session's subscriber map. The key is unique per
+// connection: conn.RemoteAddr() is not, since behind a reverse proxy every
+// client presents the proxy's address.
 func (s *RelaySession) RegisterSubscriber(conn net.Conn, env *protocol.Envelope) (*ClientConn, string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	sub := NewClientConn(conn, 2, env)
-	addr := conn.RemoteAddr().String()
-	s.subscribers[addr] = sub
-	return sub, addr
+	key := fmt.Sprintf("%s#%d", conn.RemoteAddr().String(), subKeyCounter.Add(1))
+	s.subscribers[key] = sub
+	return sub, key
 }
 
 // RemoveSubscriber removes a subscriber connection.

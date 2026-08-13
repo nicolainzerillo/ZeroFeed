@@ -4,8 +4,8 @@ import "encoding/binary"
 
 const (
 	// Protocol version
-	Version             uint8 = 0x02
-	MinSupportedVersion uint8 = 0x02
+	Version             uint8 = 0x03
+	MinSupportedVersion uint8 = 0x03
 
 	// Frame Types
 	MsgTypePAKEInitPub uint8 = 0x01 // Publisher initial handshake
@@ -17,6 +17,7 @@ const (
 	MsgTypeSyncReq     uint8 = 0x07 // Sync request frame on reconnect
 	MsgTypeChunkAck    uint8 = 0x08 // Sliding window flow control ACK frame
 	MsgTypeRekey       uint8 = 0x09 // In-stream key rotation (Rekeying & Perfect Forward Secrecy)
+	MsgTypeKeyConfirm  uint8 = 0x0A // Explicit key confirmation frame
 
 	// Payload Tag Types (Inside E2EE DataStream Payload)
 	TagText      uint8 = 0x01 // Text / Log Stream

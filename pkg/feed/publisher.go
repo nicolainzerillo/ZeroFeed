@@ -30,6 +30,7 @@ const (
 // PublisherEngine manages PAKE negotiation, sequence-numbered AEAD frame encryption, and RAM replay buffer sync.
 type PublisherEngine struct {
 	passphrase          []byte
+	masterKey           []byte
 	relayAddr           string
 	sessionID           [protocol.SessionIDSize]byte
 	pakePeer            *crypto.PAKEPeer
@@ -46,6 +47,7 @@ type PublisherEngine struct {
 	lastRekeyTime       time.Time
 	rekeyByteLimit      uint64
 	rekeyTimeLimit      time.Duration
+	untaggedInput       bool
 	mu                  sync.Mutex
 	rekeyMu             sync.Mutex
 	writeMu             sync.Mutex
@@ -57,6 +59,16 @@ func (p *PublisherEngine) SetSPKIFingerprint(fingerprint string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.expectedFingerprint = fingerprint
+}
+
+// SetUntaggedInput declares that PublishStream's input channel carries raw,
+// untagged payloads, so every message is tagged as text instead of having its
+// first byte inspected. Set this for byte streams (e.g. piped stdin) whose
+// content can legitimately begin with a tag value.
+func (p *PublisherEngine) SetUntaggedInput(untagged bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.untaggedInput = untagged
 }
 
 // SetRekeyThresholds configures custom byte and time thresholds for in-stream key ratcheting.
@@ -79,8 +91,27 @@ func NewPublisherEngine(passphrase []byte, relayAddr string) (*PublisherEngine, 
 	passCopy := make([]byte, len(passphrase))
 	copy(passCopy, passphrase)
 
+	masterKey := make([]byte, crypto.KeySize)
+	if _, err := io.ReadFull(rand.Reader, masterKey); err != nil {
+		crypto.ZeroBytes(passCopy)
+		return nil, fmt.Errorf("zerofeed/feed: failed to generate random master session key: %w", err)
+	}
+
+	ciph, err := crypto.NewCipher(masterKey)
+	if err != nil {
+		crypto.ZeroBytes(passCopy)
+		crypto.ZeroBytes(masterKey)
+		return nil, err
+	}
+
+	sasHex, sasEmoji := crypto.CalculateSAS(masterKey)
+
 	pub := &PublisherEngine{
 		passphrase:     passCopy,
+		masterKey:      masterKey,
+		cipher:         ciph,
+		sasHex:         sasHex,
+		sasEmoji:       sasEmoji,
 		relayAddr:      relayAddr,
 		sessionID:      sessionID,
 		pakePeer:       pakePeer,
@@ -216,35 +247,63 @@ func (p *PublisherEngine) CompleteHandshake(timeout time.Duration) error {
 		return fmt.Errorf("zerofeed/feed: PAKE key exchange failed: %w", err)
 	}
 
-	// Send Publisher's PAKE payload to Subscriber so Subscriber can complete derivation
+	p2pKey, err := p.pakePeer.SessionKey()
+	if err != nil {
+		return fmt.Errorf("zerofeed/feed: PAKE session key derivation failed: %w", err)
+	}
+	defer crypto.ZeroBytes(p2pKey)
+
+	p.mu.Lock()
+	masterKeyCopy := make([]byte, len(p.masterKey))
+	copy(masterKeyCopy, p.masterKey)
+	p.mu.Unlock()
+	defer crypto.ZeroBytes(masterKeyCopy)
+
+	wrappedKeyPayload, err := crypto.WrapSessionKey(p2pKey, masterKeyCopy)
+	if err != nil {
+		return fmt.Errorf("zerofeed/feed: failed to wrap session key: %w", err)
+	}
+
+	pubConfirmTag, err := p.pakePeer.ConfirmTag()
+	if err != nil {
+		return fmt.Errorf("zerofeed/feed: failed to generate publisher confirm tag: %w", err)
+	}
+
+	pakeRespPayload := append(append(append([]byte(nil), p.pakePeer.Bytes()...), wrappedKeyPayload...), pubConfirmTag...)
+
 	pakeStep2Env := &protocol.Envelope{
 		Version:   protocol.Version,
 		MsgType:   protocol.MsgTypePAKEStep2,
 		SessionID: p.sessionID,
-		Payload:   p.pakePeer.Bytes(),
+		Payload:   pakeRespPayload,
 	}
 	if err := protocol.Encode(conn, pakeStep2Env); err != nil {
 		return fmt.Errorf("zerofeed/feed: failed to send PAKE step 2: %w", err)
 	}
 
-	sessionKey, err := crypto.DeriveKey(p.passphrase, p.sessionID[:])
-	if err != nil {
-		return err
+	// Wait for the subscriber's confirmation frame. The relay multiplexes every
+	// subscriber onto this single connection, so another frame (e.g. a second
+	// subscriber's handshake init) may arrive first: skip non-confirmation
+	// frames instead of aborting the whole session, and match on the type. A
+	// mismatched tag, or no confirmation within the read deadline, stays fatal.
+	confirmed := false
+	for i := 0; i < 8; i++ {
+		confirmFrame, err := protocol.Decode(conn)
+		if err != nil {
+			return fmt.Errorf("zerofeed/feed: failed to receive subscriber key confirmation frame: %w", err)
+		}
+		if confirmFrame.MsgType != protocol.MsgTypeKeyConfirm {
+			continue
+		}
+		if err := p.pakePeer.VerifyPeerConfirm(confirmFrame.Payload); err != nil {
+			return fmt.Errorf("zerofeed/feed: subscriber key confirmation tag mismatch: %w", err)
+		}
+		confirmed = true
+		break
 	}
-	defer crypto.ZeroBytes(sessionKey)
-
-	sasHex, sasEmoji := crypto.CalculateSAS(sessionKey)
-
-	ciph, err := crypto.NewCipher(sessionKey)
-	if err != nil {
-		return err
+	if !confirmed {
+		return fmt.Errorf("zerofeed/feed: subscriber key confirmation frame not received")
 	}
-
-	p.mu.Lock()
-	p.cipher = ciph
-	p.sasHex = sasHex
-	p.sasEmoji = sasEmoji
-	p.mu.Unlock()
 
 	return nil
 }
@@ -296,8 +355,17 @@ func (p *PublisherEngine) PublishStream(ctx context.Context, inputChan <-chan []
 				continue
 			}
 
+			p.mu.Lock()
+			untagged := p.untaggedInput
+			p.mu.Unlock()
+
+			// Callers that declare an untagged stream always get an explicit tag.
+			// Sniffing payload[0] is only a fallback for callers that mix
+			// pre-tagged frames into the channel: it misreads raw bytes that
+			// happen to start with a tag value (e.g. piped binary beginning
+			// 0x02) as an already-tagged frame and routes them as file metadata.
 			var taggedPayload []byte
-			if payload[0] != protocol.TagText && payload[0] != protocol.TagFileStart && payload[0] != protocol.TagFileChunk && payload[0] != protocol.TagFileEnd {
+			if untagged || (payload[0] != protocol.TagText && payload[0] != protocol.TagFileStart && payload[0] != protocol.TagFileChunk && payload[0] != protocol.TagFileEnd) {
 				taggedPayload = make([]byte, 1+len(payload))
 				taggedPayload[0] = protocol.TagText
 				copy(taggedPayload[1:], payload)
@@ -366,13 +434,36 @@ func (p *PublisherEngine) handleSyncRequests(ctx context.Context) {
 					crypto.ZeroBytes(pass)
 					if err == nil {
 						_ = pakePeerSub.Update(env.Payload)
-						pakeStep2Env := &protocol.Envelope{
-							Version:   protocol.Version,
-							MsgType:   protocol.MsgTypePAKEStep2,
-							SessionID: p.sessionID,
-							Payload:   pakePeerSub.Bytes(),
+						p2pKey, pErr := pakePeerSub.SessionKey()
+						if pErr == nil {
+							p.mu.Lock()
+							masterKeyCopy := make([]byte, len(p.masterKey))
+							copy(masterKeyCopy, p.masterKey)
+							p.mu.Unlock()
+
+							wrappedKeyPayload, wErr := crypto.WrapSessionKey(p2pKey, masterKeyCopy)
+							crypto.ZeroBytes(p2pKey)
+							crypto.ZeroBytes(masterKeyCopy)
+
+							if wErr == nil {
+								pubConfirmTag, cErr := pakePeerSub.ConfirmTag()
+								if cErr == nil {
+									pakeRespPayload := append(append(append([]byte(nil), pakePeerSub.Bytes()...), wrappedKeyPayload...), pubConfirmTag...)
+									pakeStep2Env := &protocol.Envelope{
+										Version:   protocol.Version,
+										MsgType:   protocol.MsgTypePAKEStep2,
+										SessionID: p.sessionID,
+										Payload:   pakeRespPayload,
+									}
+									// Do not inline-read the confirmation here: this goroutine is the
+									// sole reader of the multiplexed relay connection, so a blocking
+									// read could swallow an unrelated frame (ChunkAck/SyncReq) from
+									// another subscriber. The reconnecting subscriber's KeyConfirm
+									// frame is delivered to the main loop below and harmlessly ignored.
+									_ = p.sendFrame(pakeStep2Env)
+								}
+							}
 						}
-						_ = p.sendFrame(pakeStep2Env)
 						pakePeerSub.Close()
 					}
 				}
@@ -423,10 +514,10 @@ func (p *PublisherEngine) replaySyncForSubscriber(lastSeqNum uint64) {
 	for _, item := range items {
 		nonce := crypto.ConstructNonceRFC5116(sessionSalt, item.SeqNum)
 
-		payloadToEncrypt := item.Payload
-		if len(item.Payload) > 0 && (item.Payload[0] == protocol.TagText || item.Payload[0] == protocol.TagFileStart || item.Payload[0] == protocol.TagFileEnd) {
-			payloadToEncrypt = protocol.PadPayload(item.Payload, protocol.DefaultPaddingTargetSize)
-		}
+		// Pad every frame uniformly so the subscriber can always unpad. Small
+		// frames (text) fill the 1280B bucket for traffic-analysis resistance;
+		// large frames (file chunks) only carry the 4-byte length prefix.
+		payloadToEncrypt := protocol.PadPayload(item.Payload, protocol.DefaultPaddingTargetSize)
 
 		framePayloadLen := uint32(8 + len(payloadToEncrypt) + 16)
 		headerBytes := make([]byte, protocol.HeaderSize)
@@ -485,6 +576,11 @@ func (p *PublisherEngine) Close() {
 	if p.pakePeer != nil {
 		p.pakePeer.Close()
 		p.pakePeer = nil
+	}
+
+	if p.masterKey != nil {
+		crypto.ZeroBytes(p.masterKey)
+		p.masterKey = nil
 	}
 
 	if p.passphrase != nil {
@@ -669,6 +765,15 @@ func (p *PublisherEngine) TriggerRekey(ctx context.Context) error {
 		p.mu.Unlock()
 		return err
 	}
+	// Advance the stored master key to the ratcheted key. A subscriber that
+	// (re)connects after a rekey is handed p.masterKey via WrapSessionKey and
+	// replaySyncForSubscriber re-encrypts buffered frames with the live cipher,
+	// so the stored key must track the current cipher key or the peer cannot
+	// decrypt the live stream.
+	if p.masterKey != nil {
+		crypto.ZeroBytes(p.masterKey)
+	}
+	p.masterKey = append([]byte(nil), nextKey...)
 	sasHex, sasEmoji := crypto.CalculateSAS(nextKey)
 	p.sasHex = sasHex
 	p.sasEmoji = sasEmoji
@@ -704,10 +809,10 @@ func (p *PublisherEngine) PublishPayload(ctx context.Context, payload []byte) er
 	copy(sessionSalt[:], p.sessionID[:4])
 	nonce := crypto.ConstructNonceRFC5116(sessionSalt, seqNum)
 
-	payloadToEncrypt := payload
-	if len(payload) > 0 && (payload[0] == protocol.TagText || payload[0] == protocol.TagFileStart || payload[0] == protocol.TagFileEnd) {
-		payloadToEncrypt = protocol.PadPayload(payload, protocol.DefaultPaddingTargetSize)
-	}
+	// Pad every frame uniformly so the subscriber can always unpad. Small frames
+	// (text) fill the 1280B bucket for traffic-analysis resistance; large frames
+	// (file chunks) only carry the 4-byte length prefix.
+	payloadToEncrypt := protocol.PadPayload(payload, protocol.DefaultPaddingTargetSize)
 
 	framePayloadLen := uint32(8 + len(payloadToEncrypt) + 16)
 	headerBytes := make([]byte, protocol.HeaderSize)

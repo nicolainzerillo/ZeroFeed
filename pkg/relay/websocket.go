@@ -153,6 +153,11 @@ func UpgradeWebSocket(w http.ResponseWriter, r *http.Request) (net.Conn, error) 
 		return nil, errors.New("not a websocket request")
 	}
 
+	clientKey := strings.TrimSpace(r.Header.Get("Sec-WebSocket-Key"))
+	if clientKey == "" {
+		return nil, errors.New("missing Sec-WebSocket-Key header")
+	}
+
 	hj, ok := w.(http.Hijacker)
 	if !ok {
 		return nil, errors.New("webserver doesn't support hijacking")
@@ -163,7 +168,6 @@ func UpgradeWebSocket(w http.ResponseWriter, r *http.Request) (net.Conn, error) 
 		return nil, err
 	}
 
-	clientKey := r.Header.Get("Sec-WebSocket-Key")
 	acceptKey := computeAcceptKey(clientKey)
 
 	response := "HTTP/1.1 101 Switching Protocols\r\n" +

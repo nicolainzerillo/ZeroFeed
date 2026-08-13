@@ -17,6 +17,12 @@ var (
 
 const MaxPayloadSize uint32 = 32 * 1024 * 1024 // 32MB safety limit
 
+// MaxHandshakePayload bounds the payload size accepted for the very first frame
+// on an unauthenticated connection. Handshake frames (PAKE init 1280B, PAKE
+// step2 ~1340B, sync req 8B) are small; capping here prevents a pre-auth peer
+// from forcing large speculative allocations across many connections.
+const MaxHandshakePayload uint32 = 8192
+
 var framePool = sync.Pool{
 	New: func() any {
 		b := make([]byte, 64*1024) // 64KB pool buffer for standard frames
@@ -63,6 +69,13 @@ func DecodeEnvelope(data []byte) (*Envelope, error) {
 
 // Decode reads a single frame from r, parses its header, and reads its payload bytes.
 func Decode(r io.Reader) (*Envelope, error) {
+	return DecodeWithMax(r, MaxPayloadSize)
+}
+
+// DecodeWithMax behaves like Decode but rejects any frame whose declared payload
+// length exceeds maxPayload, before allocating the payload buffer. Use a small
+// bound (e.g. MaxHandshakePayload) on unauthenticated connections.
+func DecodeWithMax(r io.Reader, maxPayload uint32) (*Envelope, error) {
 	headerBuf := make([]byte, HeaderSize)
 	if _, err := io.ReadFull(r, headerBuf); err != nil {
 		return nil, err
@@ -86,7 +99,7 @@ func Decode(r io.Reader) (*Envelope, error) {
 	copy(nonce[:], headerBuf[22:34])
 
 	payloadLen := binary.BigEndian.Uint32(headerBuf[34:38])
-	if payloadLen > MaxPayloadSize {
+	if payloadLen > maxPayload {
 		return nil, ErrPayloadTooLarge
 	}
 
@@ -111,29 +124,35 @@ var ErrInvalidPadding = errors.New("zerofeed/protocol: invalid frame payload pad
 
 const DefaultPaddingTargetSize = 1280 // IPv6 Min MTU size for uniform traffic padding
 
-// PadPayload prepends a 2-byte big-endian uint16 real length and pads data up to targetSize with zeros.
+// lenPrefixSize is the byte width of the real-length header prepended by
+// PadPayload. A 4-byte (uint32) prefix covers payloads up to MaxPayloadSize,
+// so file chunks (up to hundreds of KB) can be padded without truncation.
+const lenPrefixSize = 4
+
+// PadPayload prepends a 4-byte big-endian uint32 real length and pads data up to targetSize with zeros.
 func PadPayload(data []byte, targetSize int) []byte {
 	realLen := len(data)
-	needed := realLen + 2
+	needed := realLen + lenPrefixSize
 	if needed > targetSize {
 		targetSize = needed
 	}
 	out := make([]byte, targetSize)
-	binary.BigEndian.PutUint16(out[0:2], uint16(realLen))
+	binary.BigEndian.PutUint32(out[0:lenPrefixSize], uint32(realLen))
 	if realLen > 0 {
-		copy(out[2:], data)
+		copy(out[lenPrefixSize:], data)
 	}
 	return out
 }
 
-// UnpadPayload extracts the real payload from a padded data buffer using its 2-byte big-endian uint16 header.
+// UnpadPayload extracts the real payload from a padded data buffer using its 4-byte big-endian uint32 header.
 func UnpadPayload(data []byte) ([]byte, error) {
-	if len(data) < 2 {
+	if len(data) < lenPrefixSize {
 		return nil, ErrInvalidPadding
 	}
-	realLen := int(binary.BigEndian.Uint16(data[0:2]))
-	if realLen+2 > len(data) {
+	realLen := binary.BigEndian.Uint32(data[0:lenPrefixSize])
+	// uint64 arithmetic avoids overflow on 32-bit targets (e.g. WASM).
+	if uint64(realLen)+lenPrefixSize > uint64(len(data)) {
 		return nil, ErrInvalidPadding
 	}
-	return data[2 : 2+realLen], nil
+	return data[lenPrefixSize : lenPrefixSize+realLen], nil
 }

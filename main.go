@@ -101,13 +101,31 @@ func logStderr(quiet bool, format string, a ...interface{}) {
 	fmt.Fprintf(os.Stderr, format, a...)
 }
 
+// parsePassphrase resolves the channel code from the CLI flag aliases, falling
+// back to ZEROFEED_PASSPHRASE. Prefer the env var: process arguments are world
+// readable via ps(1) on most systems, so a code passed with --passphrase is
+// visible to every other local user for the lifetime of the process.
 func parsePassphrase(p1, p2, p3, p4, p5 *string) string {
 	for _, p := range []*string{p1, p2, p3, p4, p5} {
 		if p != nil && *p != "" {
 			return *p
 		}
 	}
-	return ""
+	return os.Getenv("ZEROFEED_PASSPHRASE")
+}
+
+// maskSecret renders a code for terminal display without writing it verbatim to
+// the scrollback: enough to tell two codes apart, not enough to reuse one read
+// over a shoulder or captured in piped logs.
+func maskSecret(s string) string {
+	if s == "" {
+		return ""
+	}
+	r := []rune(s)
+	if len(r) <= 4 {
+		return strings.Repeat("*", len(r))
+	}
+	return string(r[:2]) + strings.Repeat("*", len(r)-4) + string(r[len(r)-2:])
 }
 
 func parseByteSize(s string) uint64 {
@@ -199,10 +217,14 @@ func runPublish(args []string) error {
 	}
 
 	passVal := parsePassphrase(p1, p2, p3, p4, p5)
-	if passVal == "" {
+	generatedCode := passVal == ""
+	if generatedCode {
 		passVal = generateChannelCode()
-		logStderr(*quiet, "\n[!] No --channel specified. Generated High-Entropy Channel Code:\n")
+		logStderr(*quiet, "\n[!] No --channel specified. Generated High-Entropy Channel Code (~80 bits):\n")
 		logStderr(*quiet, "    >>> %s <<<\n\n", passVal)
+	} else if len(passVal) < 16 {
+		logStderr(*quiet, "\n[!] WARNING: Custom passphrase has lower entropy (%d chars).\n", len(passVal))
+		logStderr(*quiet, "    For maximum protection against active relay MITM attacks, use default 5-word generated codes.\n\n")
 	}
 
 	relayAddr, err := resolveRelayAddr(*r1, *r2)
@@ -253,7 +275,13 @@ func runPublish(args []string) error {
 
 	logStderr(*quiet, "====================================================\n")
 	logStderr(*quiet, " [ZeroFeed Publisher] Active Session\n")
-	logStderr(*quiet, " Code / Passphrase : %s\n", passVal)
+	// A freshly generated code is echoed once above and must stay readable here
+	// so it can be shared; a code the caller already supplied is only masked.
+	if generatedCode {
+		logStderr(*quiet, " Code / Passphrase : %s\n", passVal)
+	} else {
+		logStderr(*quiet, " Code / Passphrase : %s (supplied)\n", maskSecret(passVal))
+	}
 	logStderr(*quiet, " Session ID        : %x\n", pub.SessionID())
 	logStderr(*quiet, " Relay Server      : %s\n", relayAddr)
 	logStderr(*quiet, " Transport Mode    : %s\n", tModeStr)
@@ -286,6 +314,10 @@ func runPublish(args []string) error {
 	if fileToSend == "" && !*streamMode && isTerminal(os.Stdin) {
 		logStderr(*quiet, "[i] Reading payload from terminal (press Ctrl+D when finished, or type /file <path>)...\n")
 	}
+
+	// Piped stdin is forwarded as raw chunks, so the engine must not infer a tag
+	// from the first byte; interactive lines below are tagged explicitly.
+	pub.SetUntaggedInput(!isTerminal(os.Stdin))
 
 	inputChan := make(chan []byte, 10)
 	go func() {
@@ -442,7 +474,9 @@ func runSubscribe(args []string) error {
 
 	logStderr(*quiet, "====================================================\n")
 	logStderr(*quiet, " [ZeroFeed Subscriber] Active Session\n")
-	logStderr(*quiet, " Code / Passphrase : %s\n", passVal)
+	// The caller already holds this code, so echoing it verbatim only risks
+	// leaking it into scrollback or captured logs.
+	logStderr(*quiet, " Code / Passphrase : %s\n", maskSecret(passVal))
 	logStderr(*quiet, " Session ID        : %x\n", sub.SessionID())
 	logStderr(*quiet, " Relay Server      : %s\n", relayAddr)
 	logStderr(*quiet, " Transport Mode    : %s\n", tModeStr)
@@ -582,7 +616,7 @@ func generateChannelCode() string {
 		"bastion", "citadel", "domain", "empire", "fortress", "guardian", "hyperion", "isotope",
 		"juggernaut", "kryptonite", "labyrinth", "meridian", "nemesis", "oracle", "pathfinder", "quantumx",
 		"renegade", "sentinel", "torpedo", "universe", "vanguardx", "warlord", "xenonite", "yottabyte",
-		"zeus", "avalanche", "barrier", "chasm", "eclipse", "firewall", "grid", "hyperdrive",
+		"zeus", "avalanche", "barrier", "chasm", "equinox", "firewall", "grid", "hyperdrive",
 		"inferno", "jackhammer", "kilometer", "luminary", "meteor", "neutrino", "overload", "parsec",
 		"qubit", "raytrace", "singularity", "thruster", "unifier", "vectorx", "warp", "xenonx",
 		"yieldx", "zero-point", "arc", "bolt", "core", "disk", "flux", "gate",

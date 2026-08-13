@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 )
 
 const (
@@ -110,6 +111,7 @@ func CalculateSPKIFingerprint(rawCertDER []byte) string {
 
 // Cipher encapsulates AES-256-GCM AEAD symmetric encryption operations.
 type Cipher struct {
+	mu   sync.RWMutex
 	aead cipher.AEAD
 	key  []byte
 }
@@ -168,6 +170,9 @@ func (c *Cipher) UpdateKey(newKey []byte) error {
 		return fmt.Errorf("zerofeed/crypto: failed to create AES-GCM for rekey: %w", err)
 	}
 
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	if c.key != nil {
 		ZeroBytes(c.key)
 	}
@@ -179,6 +184,9 @@ func (c *Cipher) UpdateKey(newKey []byte) error {
 
 // GetKey returns a copy of the active 32-byte key (caller must zeroize).
 func (c *Cipher) GetKey() []byte {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
 	if c.key == nil {
 		return nil
 	}
@@ -199,7 +207,15 @@ func (c *Cipher) Encrypt(plaintext []byte, nonce []byte, aad []byte) ([]byte, []
 		return nil, nil, ErrInvalidNonceSize
 	}
 
-	ciphertext := c.aead.Seal(nil, nonce, plaintext, aad)
+	c.mu.RLock()
+	aead := c.aead
+	c.mu.RUnlock()
+
+	if aead == nil {
+		return nil, nil, errors.New("zerofeed/crypto: cipher closed")
+	}
+
+	ciphertext := aead.Seal(nil, nonce, plaintext, aad)
 	return ciphertext, nonce, nil
 }
 
@@ -209,7 +225,15 @@ func (c *Cipher) Decrypt(ciphertext []byte, nonce []byte, aad []byte) ([]byte, e
 		return nil, ErrInvalidNonceSize
 	}
 
-	plaintext, err := c.aead.Open(nil, nonce, ciphertext, aad)
+	c.mu.RLock()
+	aead := c.aead
+	c.mu.RUnlock()
+
+	if aead == nil {
+		return nil, errors.New("zerofeed/crypto: cipher closed")
+	}
+
+	plaintext, err := aead.Open(nil, nonce, ciphertext, aad)
 	if err != nil {
 		return nil, ErrDecryptionFailed
 	}
@@ -217,12 +241,57 @@ func (c *Cipher) Decrypt(ciphertext []byte, nonce []byte, aad []byte) ([]byte, e
 	return plaintext, nil
 }
 
+// WrapSessionKey encrypts masterKey (32B) using p2pKey (32B) established during PAKE handshake.
+// Returns nonce (12B) + ciphertext (48B) = 60B.
+func WrapSessionKey(p2pKey []byte, masterKey []byte) ([]byte, error) {
+	ciph, err := NewCipher(p2pKey)
+	if err != nil {
+		return nil, err
+	}
+	defer ciph.Close()
+
+	ciphertext, nonce, err := ciph.Encrypt(masterKey, nil, []byte("zerofeed-v3-pqc-key-wrap"))
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]byte, len(nonce)+len(ciphertext))
+	copy(out[0:len(nonce)], nonce)
+	copy(out[len(nonce):], ciphertext)
+	return out, nil
+}
+
+// UnwrapSessionKey decrypts a 60-byte wrapped key payload using p2pKey (32B).
+func UnwrapSessionKey(p2pKey []byte, wrappedData []byte) ([]byte, error) {
+	if len(wrappedData) < NonceSize+48 {
+		return nil, errors.New("zerofeed/crypto: invalid wrapped key payload size")
+	}
+	if len(wrappedData) > NonceSize+48 {
+		wrappedData = wrappedData[:NonceSize+48]
+	}
+
+	ciph, err := NewCipher(p2pKey)
+	if err != nil {
+		return nil, err
+	}
+	defer ciph.Close()
+
+	nonce := wrappedData[:NonceSize]
+	ciphertext := wrappedData[NonceSize:]
+
+	return ciph.Decrypt(ciphertext, nonce, []byte("zerofeed-v3-pqc-key-wrap"))
+}
+
 // Close zeroes out the stored symmetric key in memory.
 func (c *Cipher) Close() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	if c.key != nil {
 		ZeroBytes(c.key)
 		c.key = nil
 	}
+	c.aead = nil
 }
 
 // SASVisualEmojis contains curated, easily distinguishable emojis for SAS visual verification.

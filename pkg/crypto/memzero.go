@@ -136,9 +136,7 @@ func WipeAll() {
 	}
 
 	for _, b := range buffers {
-		for i := range b {
-			b[i] = 0
-		}
+		ZeroBytes(b)
 	}
 
 	runtime.KeepAlive(wipers)

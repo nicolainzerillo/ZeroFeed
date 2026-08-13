@@ -181,7 +181,7 @@ func (srv *Server) Start(ctx context.Context) error {
 	}()
 
 	go func() {
-		ticker := time.NewTicker(5 * time.Minute)
+		ticker := time.NewTicker(2 * time.Minute)
 		defer ticker.Stop()
 		for {
 			select {
@@ -189,6 +189,7 @@ func (srv *Server) Start(ctx context.Context) error {
 				return
 			case <-ticker.C:
 				srv.rateLimiter.CleanupStale(15 * time.Minute)
+				srv.reapStaleSessions()
 			}
 		}
 	}()
@@ -244,7 +245,7 @@ func (srv *Server) handleConnection(conn net.Conn) {
 	}
 
 	_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
-	env, err := protocol.Decode(conn)
+	env, err := protocol.DecodeWithMax(conn, protocol.MaxHandshakePayload)
 	if err != nil {
 		if errors.Is(err, protocol.ErrUnsupportedVer) {
 			closeEnv := &protocol.Envelope{
@@ -262,16 +263,17 @@ func (srv *Server) handleConnection(conn net.Conn) {
 	}
 	_ = conn.SetReadDeadline(time.Time{})
 
-	session := srv.getOrCreateSession(env.SessionID)
-
+	// Only a handshake frame may create a session. Creating one for any other
+	// frame type lets an unauthenticated peer grow the session map at will by
+	// replaying frames with random session IDs.
 	switch env.MsgType {
 	case protocol.MsgTypePAKEInitPub:
+		session := srv.getOrCreateSession(env.SessionID)
 		client := session.RegisterPublisher(conn, env)
 		if client == nil {
 			_ = conn.Close()
 			return
 		}
-		srv.rateLimiter.RecordSuccess(remoteAddr)
 
 		session.mu.RLock()
 		for _, sub := range session.subscribers {
@@ -284,8 +286,8 @@ func (srv *Server) handleConnection(conn net.Conn) {
 		srv.loopPublisher(session, client)
 
 	case protocol.MsgTypePAKEInitSub:
+		session := srv.getOrCreateSession(env.SessionID)
 		client, subAddr := session.RegisterSubscriber(conn, env)
-		srv.rateLimiter.RecordSuccess(remoteAddr)
 
 		session.mu.RLock()
 		pub := session.publisher
@@ -298,6 +300,13 @@ func (srv *Server) handleConnection(conn net.Conn) {
 		srv.loopSubscriber(session, client, subAddr)
 
 	case protocol.MsgTypeSyncReq:
+		defer conn.Close()
+		session := srv.lookupSession(env.SessionID)
+		if session == nil {
+			srv.rateLimiter.RecordFailure(remoteAddr)
+			return
+		}
+
 		session.mu.RLock()
 		pub := session.publisher
 		session.mu.RUnlock()
@@ -363,7 +372,7 @@ func (srv *Server) loopSubscriber(session *RelaySession, subClient *ClientConn, 
 			continue // Maintain keepalive
 		}
 
-		if env.MsgType == protocol.MsgTypeSyncReq {
+		if env.MsgType == protocol.MsgTypeSyncReq || env.MsgType == protocol.MsgTypeKeyConfirm || env.MsgType == protocol.MsgTypeChunkAck {
 			_ = session.ForwardToPublisher(env)
 		}
 	}
@@ -390,6 +399,14 @@ func (srv *Server) getOrCreateSession(sessionID [protocol.SessionIDSize]byte) *R
 	}
 
 	return session
+}
+
+// lookupSession returns the session for sessionID, or nil if none exists. Use
+// this for frames that must not be able to create a session.
+func (srv *Server) lookupSession(sessionID [protocol.SessionIDSize]byte) *RelaySession {
+	srv.mu.RLock()
+	defer srv.mu.RUnlock()
+	return srv.sessions[sessionID]
 }
 
 func (srv *Server) removeSession(sessionID [protocol.SessionIDSize]byte) {
@@ -431,4 +448,18 @@ func (srv *Server) SessionCount() int {
 	srv.mu.RLock()
 	defer srv.mu.RUnlock()
 	return len(srv.sessions)
+}
+
+// reapStaleSessions removes empty/orphaned sessions that have no active publisher or subscriber connections.
+func (srv *Server) reapStaleSessions() {
+	srv.mu.Lock()
+	defer srv.mu.Unlock()
+
+	for id, sess := range srv.sessions {
+		if sess.IsReapable() {
+			sess.Close()
+			delete(srv.sessions, id)
+			srv.metrics.ActiveSessions.Add(-1)
+		}
+	}
 }

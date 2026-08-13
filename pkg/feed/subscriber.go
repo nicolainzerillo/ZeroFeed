@@ -196,19 +196,52 @@ func (s *SubscriberEngine) CompleteHandshake(timeout time.Duration) error {
 		return fmt.Errorf("zerofeed/feed: publisher is using incompatible protocol version 0x%02X (expected 0x%02X+)", env.Version, protocol.MinSupportedVersion)
 	}
 
-	if err := s.pakePeer.Update(env.Payload); err != nil {
+	if len(env.Payload) < crypto.UniformWireMsgSize+60+32 {
+		return fmt.Errorf("zerofeed/feed: invalid PAKE response size or missing required key confirmation tag")
+	}
+
+	pakeBytes := env.Payload[:crypto.UniformWireMsgSize]
+	wrappedKeyPayload := env.Payload[crypto.UniformWireMsgSize : crypto.UniformWireMsgSize+60]
+	pubConfirmTag := env.Payload[crypto.UniformWireMsgSize+60 : crypto.UniformWireMsgSize+60+32]
+
+	if err := s.pakePeer.Update(pakeBytes); err != nil {
 		return fmt.Errorf("zerofeed/feed: PAKE key exchange failed: %w", err)
 	}
 
-	sessionKey, err := crypto.DeriveKey(s.passphrase, s.sessionID[:])
-	if err != nil {
-		return err
+	if err := s.pakePeer.VerifyPeerConfirm(pubConfirmTag); err != nil {
+		return fmt.Errorf("zerofeed/feed: publisher key confirmation tag mismatch: %w", err)
 	}
-	defer crypto.ZeroBytes(sessionKey)
 
-	sasHex, sasEmoji := crypto.CalculateSAS(sessionKey)
+	subConfirmTag, err := s.pakePeer.ConfirmTag()
+	if err != nil {
+		return fmt.Errorf("zerofeed/feed: failed to generate subscriber confirm tag: %w", err)
+	}
 
-	ciph, err := crypto.NewCipher(sessionKey)
+	confirmEnv := &protocol.Envelope{
+		Version:   protocol.Version,
+		MsgType:   protocol.MsgTypeKeyConfirm,
+		SessionID: s.sessionID,
+		Payload:   subConfirmTag,
+	}
+	if err := protocol.Encode(conn, confirmEnv); err != nil {
+		return fmt.Errorf("zerofeed/feed: failed to send subscriber key confirmation frame: %w", err)
+	}
+
+	p2pKey, err := s.pakePeer.SessionKey()
+	if err != nil {
+		return fmt.Errorf("zerofeed/feed: PAKE session key derivation failed: %w", err)
+	}
+	defer crypto.ZeroBytes(p2pKey)
+
+	masterSessionKey, err := crypto.UnwrapSessionKey(p2pKey, wrappedKeyPayload)
+	if err != nil {
+		return fmt.Errorf("zerofeed/feed: PQC master session key unwrap failed: %w", err)
+	}
+	defer crypto.ZeroBytes(masterSessionKey)
+
+	sasHex, sasEmoji := crypto.CalculateSAS(masterSessionKey)
+
+	ciph, err := crypto.NewCipher(masterSessionKey)
 	if err != nil {
 		return err
 	}
