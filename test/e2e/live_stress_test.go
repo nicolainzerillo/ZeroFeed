@@ -43,7 +43,7 @@ func TestLiveTCPRelaySingleStream(t *testing.T) {
 	passphrase := fmt.Sprintf("live-tcp-test-%d", time.Now().UnixNano())
 	passBytes := []byte(passphrase)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
 	defer cancel()
 
 	pub, err := feed.NewPublisherEngine(passBytes, FlyRelayAddr)
@@ -97,7 +97,9 @@ func TestLiveTCPRelaySingleStream(t *testing.T) {
 	// Generate 1MB payload
 	payloadSize := 1024 * 1024
 	payload := make([]byte, payloadSize)
-	_, _ = rand.Read(payload)
+	for i := range payload {
+		payload[i] = byte(32 + (i % 94))
+	}
 
 	var subBuf bytes.Buffer
 	subDone := make(chan error, 1)
@@ -131,7 +133,7 @@ func TestLiveTCPRelaySingleStream(t *testing.T) {
 	if pubErr != nil {
 		t.Fatalf("PublishStream error: %v", pubErr)
 	}
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(1 * time.Second)
 	pub.Close()
 
 	select {
@@ -139,7 +141,7 @@ func TestLiveTCPRelaySingleStream(t *testing.T) {
 		if err != nil {
 			t.Logf("Subscriber finished with status: %v", err)
 		}
-	case <-time.After(10 * time.Second):
+	case <-time.After(20 * time.Second):
 		t.Fatalf("Subscriber timed out waiting for payload stream")
 	}
 

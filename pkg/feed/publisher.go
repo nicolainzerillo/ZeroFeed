@@ -563,7 +563,7 @@ func (p *PublisherEngine) Close() {
 		p.writeMu.Lock()
 		_ = protocol.Encode(p.conn, closeEnv)
 		p.writeMu.Unlock()
-		time.Sleep(100 * time.Millisecond) // Allow TCP socket buffer flush before teardown
+		time.Sleep(500 * time.Millisecond) // Allow WAN TCP socket buffer flush before teardown
 		_ = p.conn.Close()
 		p.conn = nil
 	}
